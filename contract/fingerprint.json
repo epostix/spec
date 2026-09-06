@@ -1,0 +1,8 @@
+{
+  "raw_sha256": "bb71a54ab7ec8025ecc7f833f8a9c260ee0a9040fcfb39608c5cde1ba952c6f2",
+  "contract_sha256": "8f5de3df7a3ac063c6f0110ffc007cea51db26cb9f2826b0d72e6e27d235b4f3",
+  "api_version": "1.0.0",
+  "operations": 79,
+  "source_repo": "epostix/platform",
+  "source_path": "api/developerApi/openapi/v1.yaml"
+}
