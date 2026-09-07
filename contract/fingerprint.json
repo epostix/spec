@@ -4,5 +4,6 @@
   "api_version": "1.0.0",
   "operations": 79,
   "source_repo": "epostix/platform",
-  "source_path": "api/developerApi/openapi/v1.yaml"
+  "source_path": "api/developerApi/openapi/v1.yaml",
+  "source_commit": "bc9c2ba5ccf4c8f2950f3f91815a592db0b604e1"
 }
