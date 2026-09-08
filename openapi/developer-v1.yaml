@@ -4942,6 +4942,7 @@ components:
             - dkim
             - dmarc
             - mx_inbound
+            - openpgpkey
           description: Semantic kind of the record (so clients can label rows without parsing values).
         last_verification_error:
           type: string
