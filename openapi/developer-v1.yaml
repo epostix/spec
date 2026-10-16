@@ -4115,6 +4115,9 @@ components:
             - **clicked**: to, url, ip_address, user_agent, click_count
             - **complained**: to, bounce_type
             - **sent/failed/delayed**: event metadata
+
+            email.bounced and email.failed can arrive after email.delivered: a receiving server
+            may accept a message and report later that it could not be delivered.
     EventListResponse:
       type: object
       required:
@@ -5431,6 +5434,7 @@ components:
         - email.delayed
         - email.cancelled
         - email.received
+        - email.return_path_reply
         - domain.verified
         - domain.verification_failed
         - tracking_domain.verified
@@ -5449,6 +5453,9 @@ components:
       description: >
         Every event type the platform emits. email.* events carry an email_id, except
         email.received, which fires for inbound mail and carries an inbound_id.
+        email.return_path_reply fires when a person replies to the bounce (Return-Path)
+        address of an email rather than to its From or Reply-To address; it carries the
+        email_id of the email being answered and is never also delivered as email.received.
         domain.* and tracking_domain.* events carry a domain_id. campaign.* events carry a
         campaign_id, contact.* events a contact_id, and suppression.* events the suppressed
         address; these three families are workspace-wide and carry neither an email_id nor a
@@ -5469,6 +5476,7 @@ components:
         - email.delayed
         - email.cancelled
         - email.received
+        - email.return_path_reply
         - domain.verified
         - domain.verification_failed
         - tracking_domain.verified
