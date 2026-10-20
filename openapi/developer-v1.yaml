@@ -4117,8 +4117,8 @@ components:
             - **sent**: nothing more
             - **delivered**: attempt, mx_hostname, smtp_response
             - **bounced**: fault, reason, permanent, source, provider, smtp_code, enhanced_status_code, response.
-              fault is recipient, sender or unknown (see BounceFault), reason is one of BounceReason, source is smtp or ndr
-              (see BounceSource), provider is one of MailboxProvider. provider, smtp_code, enhanced_status_code and response
+              fault is recipient, sender or unknown (see BounceFault), reason is one of BounceReason, source is smtp, ndr or
+              suppression_list (see BounceSource), provider is one of MailboxProvider. provider, smtp_code, enhanced_status_code and response
               are present when known.
               Failures on the Epostix side never produce a bounced event.
             - **failed/delayed**: reason (a readable description), attempt, mx_hostname, next_attempt_at (delayed only), and
@@ -5873,8 +5873,12 @@ components:
         with fault recipient; unclassified comes with fault unknown; every other reason comes with fault sender.
     BounceSource:
       type: string
-      enum: [smtp, ndr]
-      description: smtp is the receiving server's reply during delivery, ndr is a bounce message received after the server accepted the email.
+      enum: [smtp, ndr, suppression_list]
+      description: >
+        smtp is the receiving server's reply during delivery, ndr is a bounce message received after the server
+        accepted the email, and suppression_list means the email was not sent because the address hard bounced on
+        Epostix within the last 14 days. A suppression_list bounce counts toward your bounce rate and suppresses the
+        address in your workspace.
     MailboxProvider:
       type: string
       enum:
