@@ -3021,8 +3021,8 @@ paths:
                 $ref: '#/components/schemas/APIError'
     delete:
       tags: [Suppressions]
-      summary: Remove manual or cleaned suppression
-      description: Remove a manual suppression or one added by an audience clean. Only suppressions with reason "manual" or "cleaned" can be removed. System suppressions (bounces, complaints) cannot be removed via API.
+      summary: Remove manual, cleaned or workspace unsubscribe suppression
+      description: Remove a manual suppression, one added by an audience clean, or an unsubscribe your workspace recorded for a contact. Removing a cleaned or unsubscribe suppression resubscribes the contact. An unsubscribe made by the recipient and system suppressions (bounces, complaints) cannot be removed via API.
       operationId: deleteSuppression
       security:
         - bearerAuth: []
@@ -3042,7 +3042,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/APIError'
         '404':
-          description: No manual or cleaned suppression found
+          description: No removable suppression found
           content:
             application/json:
               schema:
