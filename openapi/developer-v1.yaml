@@ -5851,7 +5851,8 @@ components:
       enum: [recipient, sender, unknown]
       description: >
         Who the receiving system held responsible. recipient means the address itself cannot take mail,
-        sender means the message or the sending reputation was refused, unknown means the reply did not say.
+        sender means the message or the sending reputation was refused, unknown means the reply did not say
+        or the recipient's mail servers could not be reached.
         Failures on the Epostix side never appear as a bounce.
     BounceReason:
       type: string
@@ -5867,10 +5868,13 @@ components:
         - content
         - authentication
         - sender_address
+        - domain_unreachable
         - unclassified
       description: >
         Why the message was refused. mailbox_unknown, mailbox_full, mailbox_disabled and domain_unroutable come
-        with fault recipient; unclassified comes with fault unknown; every other reason comes with fault sender.
+        with fault recipient; domain_unreachable and unclassified come with fault unknown; every other reason comes
+        with fault sender. domain_unreachable means the recipient's mail servers could not be reached until delivery
+        was given up; it suppresses the address progressively but does not count toward your bounce rate.
     BounceSource:
       type: string
       enum: [smtp, ndr, suppression_list]
