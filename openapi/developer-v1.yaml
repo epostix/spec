@@ -3022,7 +3022,7 @@ paths:
     delete:
       tags: [Suppressions]
       summary: Remove manual, cleaned or workspace unsubscribe suppression
-      description: Remove a manual suppression, one added by an audience clean, or an unsubscribe your workspace recorded for a contact. Removing a cleaned or unsubscribe suppression resubscribes the contact. An unsubscribe made by the recipient and system suppressions (bounces, complaints) cannot be removed via API.
+      description: Remove a manual suppression, one added by an audience clean, or an unsubscribe your workspace recorded for a contact. An address can carry more than one of these; a removal takes off the one listed for it, and the address stays suppressed until none remain. Removing the last cleaned or unsubscribe suppression resubscribes the contact. An unsubscribe made by the recipient and system suppressions (bounces, complaints) cannot be removed via API.
       operationId: deleteSuppression
       security:
         - bearerAuth: []
