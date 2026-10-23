@@ -4236,6 +4236,7 @@ components:
           type: string
           format: date-time
           nullable: true
+          x-omitempty: false
           description: Reschedule the email. Set to null to send immediately. Must be in the future and within 72 hours.
     EmailBatchRequest:
       type: object
@@ -4853,6 +4854,7 @@ components:
           type: string
           format: date-time
           nullable: true
+          x-omitempty: false
           description: When DNS records were last checked.
         created_at:
           type: string
@@ -5045,6 +5047,7 @@ components:
           type: string
           format: date-time
           nullable: true
+          x-omitempty: false
           description: Last activity timestamp (read-only).
         created_at:
           type: string
@@ -5172,6 +5175,7 @@ components:
         color:
           type: string
           nullable: true
+          x-omitempty: false
           description: Tag color as hex string (e.g., "#3B82F6").
         created_at:
           type: string
@@ -5283,15 +5287,18 @@ components:
           type: string
           format: date-time
           nullable: true
+          x-omitempty: false
           description: When the key expires.
         last_used_at:
           type: string
           format: date-time
           nullable: true
+          x-omitempty: false
           description: When the key was last used.
         last_used_ip:
           type: string
           nullable: true
+          x-omitempty: false
           description: IP address of the last request using this key.
         request_count:
           type: integer
@@ -5364,6 +5371,7 @@ components:
           type: string
           format: date-time
           nullable: true
+          x-omitempty: false
     APIKeyUpdateRequest:
       type: object
       properties:
@@ -5416,6 +5424,7 @@ components:
         ip_address:
           type: string
           nullable: true
+          x-omitempty: false
           description: Client IP address.
         scope_used:
           $ref: '#/components/schemas/PermissionScope'
@@ -5452,6 +5461,7 @@ components:
         - email.return_path_reply
         - domain.verified
         - domain.verification_failed
+        - domain.records_drifted
         - tracking_domain.verified
         - tracking_domain.verification_failed
         - campaign.started
@@ -5471,7 +5481,10 @@ components:
         email.return_path_reply fires when a person replies to the bounce (Return-Path)
         address of an email rather than to its From or Reply-To address; it carries the
         email_id of the email being answered and is never also delivered as email.received.
-        domain.* and tracking_domain.* events carry a domain_id. campaign.* events carry a
+        domain.* and tracking_domain.* events carry a domain_id. domain.verified and
+        domain.verification_failed fire only when a domain's status changes;
+        domain.records_drifted fires once when a required record of a verified domain stops
+        resolving, while the domain is still sending. campaign.* events carry a
         campaign_id, contact.* events a contact_id, and suppression.* events the suppressed
         address; these three families are workspace-wide and carry neither an email_id nor a
         domain_id. webhook.test is delivered by the test-endpoint operation and cannot be
@@ -5494,6 +5507,7 @@ components:
         - email.return_path_reply
         - domain.verified
         - domain.verification_failed
+        - domain.records_drifted
         - tracking_domain.verified
         - tracking_domain.verification_failed
         - campaign.started
@@ -5607,9 +5621,11 @@ components:
           type: string
           format: date-time
           nullable: true
+          x-omitempty: false
         disabled_reason:
           type: string
           nullable: true
+          x-omitempty: false
         created_at:
           type: string
           format: date-time
@@ -5686,19 +5702,23 @@ components:
         response_code:
           type: integer
           nullable: true
+          x-omitempty: false
         response_body:
           type: string
           nullable: true
+          x-omitempty: false
         attempt:
           type: integer
         next_retry_at:
           type: string
           format: date-time
           nullable: true
+          x-omitempty: false
         delivered_at:
           type: string
           format: date-time
           nullable: true
+          x-omitempty: false
         created_at:
           type: string
           format: date-time

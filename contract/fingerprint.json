@@ -1,9 +1,9 @@
 {
-  "raw_sha256": "60c234894bbaab97fa907c882351f35e25d3010c4ce20943692c7a91dafb862e",
-  "contract_sha256": "9511016947844dfeb974093122c68d0a6aa1d0064595c84c1e16861d809ba2f4",
+  "raw_sha256": "828036ce79725aca785c093b904eb5fdbb65b979d02b35b306ebe9aee2cca9af",
+  "contract_sha256": "59bd66f3d3b54fee17b2580cb4ad9432ea2b12abd9d843a2c0e9d44545a39e27",
   "api_version": "1.0.0",
   "operations": 79,
   "source_repo": "epostix/platform",
   "source_path": "api/developerApi/openapi/v1.yaml",
-  "source_commit": "a07c3a8a9957662ddbeef58a5bda2b86cc357c17"
+  "source_commit": "0fadd8405c7530150381c6a80f19cb918dc6ab28"
 }
