@@ -5459,6 +5459,7 @@ components:
         - email.cancelled
         - email.received
         - email.return_path_reply
+        - email.address_changed
         - domain.verified
         - domain.verification_failed
         - domain.records_drifted
@@ -5481,6 +5482,11 @@ components:
         email.return_path_reply fires when a person replies to the bounce (Return-Path)
         address of an email rather than to its From or Reply-To address; it carries the
         email_id of the email being answered and is never also delivered as email.received.
+        email.address_changed fires when an automatic reply to an email says that the
+        recipient's address has changed or is no longer in use; it carries the email_id,
+        the original recipient, and new_address when the notice names exactly one other
+        address, or null. It never carries the reply text, and the recipient is neither
+        suppressed nor counted as bounced.
         domain.* and tracking_domain.* events carry a domain_id. domain.verified and
         domain.verification_failed fire only when a domain's status changes;
         domain.records_drifted fires once when a required record of a verified domain stops
@@ -5505,6 +5511,7 @@ components:
         - email.cancelled
         - email.received
         - email.return_path_reply
+        - email.address_changed
         - domain.verified
         - domain.verification_failed
         - domain.records_drifted
