@@ -1325,6 +1325,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
+        '409':
+          description: A contact with this email already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
         '422':
           description: Validation error
           content:
@@ -1540,6 +1546,12 @@ paths:
                 $ref: '#/components/schemas/APIError'
         '404':
           description: Contact not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '409':
+          description: A contact with this email already exists
           content:
             application/json:
               schema:
@@ -5068,34 +5080,61 @@ components:
           description: Contact email address.
         name:
           type: string
-          description: Contact display name.
+          description: Contact display name. When the contact already exists, omitting it keeps the stored name and an empty string clears it.
         tag_ids:
           type: array
+          maxItems: 100
           items:
             type: string
-          description: Tag IDs to assign to the contact.
+          description: Tag IDs to assign to the contact. Every ID must be a tag in this workspace; otherwise the request fails with 400 and nothing is written. In a bulk request, a contact with an unknown tag is not written and is reported with code `tag_not_found`.
     ContactUpdate:
       type: object
       properties:
         name:
           type: string
-          description: Contact display name.
+          description: Contact display name. When the contact already exists, omitting it keeps the stored name and an empty string clears it.
         tag_ids:
           type: array
+          maxItems: 100
           items:
             type: string
-          description: Tag IDs to assign. Replaces existing tag assignments.
+          description: Replaces the contact's tags with exactly these; an empty array removes every tag. Cannot be combined with `add_tag_ids` or `remove_tag_ids`. Every ID must be a tag in this workspace; otherwise the request fails with 400 and nothing is written.
+        add_tag_ids:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+          description: Tag IDs to add, keeping the contact's other tags. Every ID must be a tag in this workspace; otherwise the request fails with 400 and nothing is written.
+        remove_tag_ids:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+          description: Tag IDs to remove, keeping the contact's other tags. An ID cannot appear in both `add_tag_ids` and `remove_tag_ids`. Every ID must be a tag in this workspace; otherwise the request fails with 400 and nothing is written.
     ContactUpsert:
       type: object
       properties:
         name:
           type: string
-          description: Contact display name.
+          description: Contact display name. When the contact already exists, omitting it keeps the stored name and an empty string clears it.
         tag_ids:
           type: array
+          maxItems: 100
           items:
             type: string
-          description: Tag IDs to assign to the contact.
+          description: Replaces the contact's tags with exactly these; an empty array removes every tag. Cannot be combined with `add_tag_ids` or `remove_tag_ids`. Every ID must be a tag in this workspace; otherwise the request fails with 400 and nothing is written.
+        add_tag_ids:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+          description: Tag IDs to add, keeping the contact's other tags. Every ID must be a tag in this workspace; otherwise the request fails with 400 and nothing is written.
+        remove_tag_ids:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+          description: Tag IDs to remove, keeping the contact's other tags. An ID cannot appear in both `add_tag_ids` and `remove_tag_ids`. Every ID must be a tag in this workspace; otherwise the request fails with 400 and nothing is written.
     ContactListResponse:
       type: object
       required:
@@ -5156,7 +5195,7 @@ components:
                 description: Error message.
               code:
                 type: string
-                description: Error code.
+                description: Error code — `validation_error`, `tag_not_found` or `internal_error`.
           description: Details of failed contacts.
     Tag:
       type: object
@@ -5832,6 +5871,7 @@ components:
         - sending_restricted
         - platform_error
         - not_delivered
+        - contact_limit_exceeded
       x-enum-varnames:
         - EmailFailureReasonSuppressed
         - EmailFailureReasonInvalidRecipient
@@ -5843,6 +5883,7 @@ components:
         - EmailFailureReasonSendingRestricted
         - EmailFailureReasonPlatformError
         - EmailFailureReasonNotDelivered
+        - EmailFailureReasonContactLimitExceeded
       description: >
         Why the email failed. suppressed means the recipient is on the suppression list, invalid_recipient means
         the address cannot receive mail, bounced means a receiving server refused the message, expired means
@@ -5850,7 +5891,9 @@ components:
         mean an attachment could not be included, dkim_key_mismatch means the sending domain's DKIM record is missing
         or does not match its signing key, sending_restricted means sending from the workspace was restricted until
         the message expired, platform_error means the failure was on the Epostix side, and not_delivered means
-        the message was not delivered for a reason that could not be attributed. New values may be added.
+        the message was not delivered for a reason that could not be attributed, and contact_limit_exceeded means
+        the recipient is past the number of subscribed contacts the workspace's plan can send marketing email to.
+        New values may be added.
     EmailFailureFault:
       type: string
       enum: [recipient, sender, platform, unknown]
