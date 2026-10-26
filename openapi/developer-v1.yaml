@@ -55,7 +55,8 @@ paths:
           schema:
             type: string
             maxLength: 255
-          description: Unique key to ensure idempotent request processing. Cached for 24 hours.
+          description: |
+            Caller-supplied key for this message, kept for 24 hours. The key belongs to the workspace and its live or test environment, not to the API key, so it still applies after the key is rotated. Retrying with the same key and an equivalent body returns the message that was already accepted, with `Idempotent-Replayed: true`. The same key with a different body returns `409 idempotency_conflict`. May also be sent as `idempotency_key` in the body; when both are present they must match.
       requestBody:
         required: true
         content:
@@ -65,6 +66,12 @@ paths:
       responses:
         '201':
           description: Email sent successfully
+          headers:
+            Idempotent-Replayed:
+              description: Present and `true` when the response returns a message already accepted under the same idempotency key.
+              schema:
+                type: string
+                enum: ['true']
           content:
             application/json:
               schema:
@@ -284,7 +291,7 @@ paths:
           schema:
             type: string
             maxLength: 255
-          description: Unique key to ensure idempotent request processing. Cached for 24 hours.
+          description: Not accepted on batch sends; a request carrying it is rejected with `400`. Set `idempotency_key` on each message instead, so that a retried, reordered or partial batch deduplicates message by message.
       requestBody:
         required: true
         content:
@@ -3984,6 +3991,7 @@ components:
       required:
         - id
         - purpose
+        - pre_rendered
         - status
         - created_at
         - updated_at
@@ -4031,6 +4039,9 @@ components:
           description: Whether the email was submitted with a live or a test API key. Test emails are simulated and never delivered.
         purpose:
           $ref: '#/components/schemas/EmailPurpose'
+        pre_rendered:
+          type: boolean
+          description: Whether the HTML and text were submitted as final content that Epostix does not interpret as a template.
         tags:
           type: array
           items:
@@ -4248,8 +4259,16 @@ components:
         allow_duplicate:
           type: boolean
           description: Set to true to bypass duplicate detection. Use for legitimate cases like OTP resends.
+        idempotency_key:
+          type: string
+          maxLength: 255
+          description: Caller-supplied key for this message, kept for 24 hours and scoped to the workspace and its live or test environment. Resending a message with the same key and equivalent content returns the message already accepted instead of sending it again; the same key with different content is rejected with `idempotency_conflict`. In a batch, each message is deduplicated by its own key regardless of its position in the batch.
         purpose:
           $ref: '#/components/schemas/EmailPurpose'
+        pre_rendered:
+          type: boolean
+          description: |
+            Set to true when `html` and `text` are final content rendered outside Epostix. Epostix then does not interpret template syntax such as `{{ email }}` or `{{ unsubscribe_link }}` in them. Unsubscribe handling and tracking still apply. Cannot be combined with `template_id`.
     EmailPurpose:
       type: string
       enum: [transactional, marketing]
@@ -4742,9 +4761,12 @@ components:
             - api_key_ip_restricted
             - domain_scope_restricted
             - workspace_suspended
+            - workspace_inactive
             - test_mode_restricted
             - domain_not_found
             - domain_not_verified
+            - domain_review_pending
+            - domain_review_rejected
             - invalid_from_address
             - duplicate_detected
             - invalid_schedule
