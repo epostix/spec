@@ -44,7 +44,7 @@ paths:
     post:
       tags: [Emails]
       summary: Send an email
-      description: Send a transactional email. Domain is derived from the `from` address.
+      description: Send a transactional or marketing email. Domain is derived from the `from` address.
       operationId: sendEmail
       security:
         - bearerAuth: []
@@ -273,7 +273,7 @@ paths:
     post:
       tags: [Batch]
       summary: Send a batch of emails
-      description: Send up to 100 transactional emails in a single request. Returns per-email results.
+      description: Send up to 100 transactional or marketing emails in a single request. Returns per-email results.
       operationId: sendEmailBatch
       security:
         - bearerAuth: []
@@ -1228,6 +1228,7 @@ paths:
               - subscribed
               - unsubscribed
               - cleaned
+              - bounced
           description: Filter by subscription status.
         - name: engagement_tier
           in: query
@@ -3034,7 +3035,7 @@ paths:
     delete:
       tags: [Suppressions]
       summary: Remove manual, cleaned or workspace unsubscribe suppression
-      description: Remove a manual suppression, one added by an audience clean, or an unsubscribe your workspace recorded for a contact. An address can carry more than one of these; a removal takes off the one listed for it, and the address stays suppressed until none remain. Removing the last cleaned or unsubscribe suppression resubscribes the contact. An unsubscribe made by the recipient and system suppressions (bounces, complaints) cannot be removed via API.
+      description: Remove a manual suppression, one added by an audience clean, or an unsubscribe your workspace recorded for a contact. An address can carry more than one of these; a removal takes off the one listed for it, and the address stays suppressed until none remain. Removing the suppression that set the contact's status resubscribes the contact once no other suppression remains; if one does, the contact takes the status that suppression sets. An unsubscribe made by the recipient and system suppressions (bounces, complaints) cannot be removed via API.
       operationId: deleteSuppression
       security:
         - bearerAuth: []
@@ -3982,6 +3983,7 @@ components:
       type: object
       required:
         - id
+        - purpose
         - status
         - created_at
         - updated_at
@@ -4027,6 +4029,8 @@ components:
           type: string
           enum: [live, test]
           description: Whether the email was submitted with a live or a test API key. Test emails are simulated and never delivered.
+        purpose:
+          $ref: '#/components/schemas/EmailPurpose'
         tags:
           type: array
           items:
@@ -4140,6 +4144,9 @@ components:
             - **opened**: ip_address, user_agent, open_source, device_type, os, os_version, client, client_version, is_bot, is_machine_open
             - **clicked**: url, ip_address, user_agent, the opened fields and is_machine_click
             - **complained**: feedback_type, provider (see MailboxProvider), reported_at
+            - **suppression.created/removed**: see SuppressionEventData. suppression.created fires when an address
+              gains its first suppression and suppression.removed when it loses its last one.
+            - **contact.status_changed**: see ContactStatusChangedEventData
 
             Test mode events also carry simulated and outcome.
 
@@ -4241,6 +4248,15 @@ components:
         allow_duplicate:
           type: boolean
           description: Set to true to bypass duplicate detection. Use for legitimate cases like OTP resends.
+        purpose:
+          $ref: '#/components/schemas/EmailPurpose'
+    EmailPurpose:
+      type: string
+      enum: [transactional, marketing]
+      description: |
+        What the message is for. Omitted means `transactional`.
+
+        Marketing messages count against the plan's audience contacts instead of the transactional email quota. Each recipient is added to the audience as a contact, carries a one-click unsubscribe link and `List-Id` header, is skipped when it has unsubscribed or been cleaned, and is sent from the marketing infrastructure.
     EmailUpdate:
       type: object
       properties:
@@ -5026,7 +5042,35 @@ components:
             - subscribed
             - unsubscribed
             - cleaned
-          description: Subscription status (read-only, computed by the system).
+            - bounced
+          description: >
+            Subscription status (read-only, computed by the system). It follows the address's
+            suppressions: unsubscribed for an opt-out or a complaint, cleaned for a manual or
+            cleaned suppression, bounced for a permanent bounce, and subscribed otherwise.
+        status_changed_at:
+          type: string
+          format: date-time
+          nullable: true
+          x-omitempty: false
+          description: When the status last changed (read-only).
+        status_source:
+          nullable: true
+          x-omitempty: false
+          allOf:
+            - $ref: '#/components/schemas/ConsentSource'
+          description: What made the last status change (read-only). null for changes recorded before sources were tracked.
+        status_reason:
+          type: string
+          nullable: true
+          x-omitempty: false
+          description: The reason recorded with the last status change (read-only).
+        suppressions:
+          type: array
+          items:
+            $ref: '#/components/schemas/SuppressionRecord'
+          description: >
+            Every active suppression of the contact's address, primary first. Returned when a
+            single contact is fetched, updated or unsubscribed; absent from lists.
         source:
           type: string
           enum:
@@ -5817,13 +5861,115 @@ components:
           format: date-time
           description: When the old secret stops being valid (24h from now).
 
+    ConsentSource:
+      type: string
+      enum:
+        - api
+        - dashboard
+        - import
+        - bulk_operation
+        - smtp
+        - unsubscribe_link
+        - one_click
+        - mailto
+        - feedback_loop
+        - bounce
+        - cleanup
+        - operator
+      x-enum-varnames:
+        - ConsentSourceApi
+        - ConsentSourceDashboard
+        - ConsentSourceImport
+        - ConsentSourceBulkOperation
+        - ConsentSourceSmtp
+        - ConsentSourceUnsubscribeLink
+        - ConsentSourceOneClick
+        - ConsentSourceMailto
+        - ConsentSourceFeedbackLoop
+        - ConsentSourceBounce
+        - ConsentSourceCleanup
+        - ConsentSourceOperator
+      description: >
+        What made a consent or suppression change. api is the Developer API, dashboard the
+        Epostix dashboard, import a CSV import, bulk_operation a dashboard bulk action, smtp a
+        contact created by sending over SMTP, unsubscribe_link the unsubscribe page,
+        one_click an RFC 8058 one-click unsubscribe, mailto an unsubscribe email,
+        feedback_loop a mailbox provider's complaint report, bounce the receiving server,
+        cleanup an audience cleanup, and operator an Epostix operator. New values may be added.
+
+    SuppressionScope:
+      type: string
+      enum: [all, marketing]
+      x-enum-varnames: [SuppressionScopeAll, SuppressionScopeMarketing]
+      description: Which email the suppression blocks. all blocks every email; marketing blocks marketing email only.
+
+    SuppressionOrigin:
+      type: string
+      enum: [workspace, recipient]
+      x-enum-varnames: [SuppressionOriginWorkspace, SuppressionOriginRecipient]
+      description: >
+        Who set the suppression. recipient suppressions (opt-outs and complaints) cannot be
+        removed or overridden by a resubscribe; workspace suppressions can.
+
+    SuppressionRecord:
+      type: object
+      required:
+        - reason
+        - scope
+        - origin
+        - source
+        - temporary
+        - suppressed_until
+        - created_at
+        - updated_at
+      properties:
+        reason:
+          type: string
+          enum: [hard_bounce, soft_bounce, complaint, manual, unsubscribe, cleaned]
+        scope:
+          $ref: '#/components/schemas/SuppressionScope'
+        origin:
+          nullable: true
+          x-omitempty: false
+          allOf:
+            - $ref: '#/components/schemas/SuppressionOrigin'
+          description: Who set the suppression. null for bounces, which no one set.
+        source:
+          nullable: true
+          x-omitempty: false
+          allOf:
+            - $ref: '#/components/schemas/ConsentSource'
+          description: What created the suppression. null for suppressions recorded before sources were tracked.
+        temporary:
+          type: boolean
+          description: True for a soft-bounce suppression that lifts itself at suppressed_until.
+        suppressed_until:
+          type: string
+          format: date-time
+          nullable: true
+          x-omitempty: false
+          description: When a temporary suppression lifts. null for lasting suppressions.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
     Suppression:
       type: object
+      description: The address's primary suppression, the one that decides its contact status.
       required:
         - id
         - email
         - reason
+        - scope
+        - origin
+        - source
+        - temporary
+        - suppressed_until
         - created_at
+        - updated_at
       properties:
         id:
           type: string
@@ -5833,7 +5979,29 @@ components:
         reason:
           type: string
           enum: [hard_bounce, soft_bounce, complaint, manual, unsubscribe, cleaned]
+        scope:
+          $ref: '#/components/schemas/SuppressionScope'
+        origin:
+          nullable: true
+          x-omitempty: false
+          allOf:
+            - $ref: '#/components/schemas/SuppressionOrigin'
+        source:
+          nullable: true
+          x-omitempty: false
+          allOf:
+            - $ref: '#/components/schemas/ConsentSource'
+        temporary:
+          type: boolean
+        suppressed_until:
+          type: string
+          format: date-time
+          nullable: true
+          x-omitempty: false
         created_at:
+          type: string
+          format: date-time
+        updated_at:
           type: string
           format: date-time
 
@@ -5842,6 +6010,7 @@ components:
       required:
         - email
         - suppressed
+        - suppressions
       properties:
         email:
           type: string
@@ -5850,13 +6019,98 @@ components:
         reason:
           type: string
           enum: [hard_bounce, soft_bounce, complaint, manual, unsubscribe, cleaned]
+          description: The primary suppression's reason.
+        scope:
+          $ref: '#/components/schemas/SuppressionScope'
+        origin:
+          nullable: true
+          x-omitempty: false
+          allOf:
+            - $ref: '#/components/schemas/SuppressionOrigin'
+        source:
+          nullable: true
+          x-omitempty: false
+          allOf:
+            - $ref: '#/components/schemas/ConsentSource'
+        temporary:
+          type: boolean
+        suppressed_until:
+          type: string
+          format: date-time
+          nullable: true
+          x-omitempty: false
         created_at:
           type: string
           format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        suppressions:
+          type: array
+          items:
+            $ref: '#/components/schemas/SuppressionRecord'
+          description: Every active suppression of the address, primary first.
         bounce_history:
           type: array
           items:
             $ref: '#/components/schemas/BounceHistoryEntry'
+
+    SuppressionEventData:
+      type: object
+      description: The data of suppression.created and suppression.removed events.
+      required: [email, reason, scope, origin, source, temporary]
+      properties:
+        email:
+          type: string
+        reason:
+          type: string
+          enum: [hard_bounce, soft_bounce, complaint, manual, unsubscribe, cleaned]
+        scope:
+          $ref: '#/components/schemas/SuppressionScope'
+        origin:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/SuppressionOrigin'
+        source:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/ConsentSource'
+        temporary:
+          type: boolean
+        suppressed_until:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+    ContactStatusChangedEventData:
+      type: object
+      description: The data of contact.status_changed events.
+      required: [contact_id, email, status, previous_status, reason, source, changed_at]
+      properties:
+        contact_id:
+          type: string
+        email:
+          type: string
+        status:
+          type: string
+          enum: [subscribed, unsubscribed, cleaned, bounced]
+        previous_status:
+          type: string
+          nullable: true
+          enum: [subscribed, unsubscribed, cleaned, bounced]
+          description: null when the contact had no status yet.
+        reason:
+          type: string
+          nullable: true
+        source:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/ConsentSource'
+        changed_at:
+          type: string
+          format: date-time
 
     EmailFailureReason:
       type: string
