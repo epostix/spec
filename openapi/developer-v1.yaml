@@ -1481,6 +1481,411 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
+  /contacts/field-jobs:
+    post:
+      tags: [Contacts]
+      summary: Create a custom field job
+      description: >-
+        Write custom field values to up to 1,000 existing contacts (at most 5 MiB) asynchronously. Every item is
+        validated first and the job freezes the addressed contacts and the versions of the fields it writes. It
+        then runs unless `dry_run` is true, in which case it stops at `ready` until it is confirmed. Each item
+        succeeds or fails on its own; a field changed by someone else after validation is reported as a conflict
+        and left alone. Jobs are `data_only` unless `activation` is `activate`. Poll the job and read its results;
+        the change is recorded in each contact's custom field history under the job's ID.
+      operationId: createFieldJob
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: >-
+            Unique key for this job, scoped to the workspace and kept for 24 hours. Repeating the request with the
+            same key and body returns the original job; the same key with a different body returns 409
+            `idempotency_conflict`.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FieldJobCreate'
+      responses:
+        '202':
+          description: The job was accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FieldJob'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '403':
+          description: Insufficient scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '413':
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+  /contacts/field-jobs/{job_id}:
+    get:
+      tags: [Contacts]
+      summary: Get a custom field job
+      operationId: getFieldJob
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The field job
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FieldJob'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '403':
+          description: Insufficient scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+  /contacts/field-jobs/{job_id}/results:
+    get:
+      tags: [Contacts]
+      summary: List a custom field job's results
+      description: One result per item, in request order. Values are never echoed back.
+      operationId: listFieldJobResults
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: state
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/FieldJobResultState'
+        - name: after
+          in: query
+          required: false
+          description: The `next_after` value of the previous page.
+          schema:
+            type: integer
+            minimum: 0
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 1000
+      responses:
+        '200':
+          description: A page of results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FieldJobResultList'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '403':
+          description: Insufficient scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+  /contacts/field-jobs/{job_id}/confirm:
+    post:
+      tags: [Contacts]
+      summary: Confirm a custom field job
+      description: Run a job created with `dry_run` once it is `ready`. It writes exactly the contacts it validated.
+      operationId: confirmFieldJob
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The field job
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FieldJob'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '403':
+          description: Insufficient scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+  /contacts/field-jobs/{job_id}/cancel:
+    post:
+      tags: [Contacts]
+      summary: Cancel a custom field job
+      description: Stop a job that has not finished. Items already written stay written; use undo to reverse them.
+      operationId: cancelFieldJob
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The field job
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FieldJob'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '403':
+          description: Insufficient scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+  /contacts/field-jobs/{job_id}/retry:
+    post:
+      tags: [Contacts]
+      summary: Retry a custom field job
+      description: Revalidate the failed and conflicted items of a finished job against current values and write the ones that pass.
+      operationId: retryFieldJob
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The field job
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FieldJob'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '403':
+          description: Insufficient scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+  /contacts/field-operations/{operation_id}/undo:
+    post:
+      tags: [Contacts]
+      summary: Undo a custom field operation
+      description: >-
+        Start a `field_undo` job that restores the values an operation replaced, for seven days after it ran. The
+        operation is a field job's ID or the `operation_id` of a change in a contact's custom field history. A
+        value changed again since then is reported as a conflict and kept. Undo never deletes contacts, never
+        restores erased data, never changes consent and always runs `data_only`. It is unavailable when the
+        workspace keeps no custom field history.
+      operationId: undoFieldOperation
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: operation_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '202':
+          description: The undo job
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FieldJob'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '403':
+          description: Insufficient scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
   /contacts/by-email/{email}:
     put:
       tags: [Contacts]
@@ -5507,6 +5912,7 @@ components:
             - webhook_url_not_allowed
             - custom_field_limit_reached
             - custom_field_state_conflict
+            - field_job_state_conflict
             - predicate_broken
             - precondition_failed
             - precondition_required
@@ -6261,6 +6667,167 @@ components:
             unit:
               type: string
               enum: [hours, days, weeks, months]
+    FieldJobCreate:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/FieldJobItem'
+        dry_run:
+          type: boolean
+          default: false
+          description: Validate and stop at `ready` instead of running.
+        activation:
+          $ref: '#/components/schemas/FieldActivation'
+    FieldJobItem:
+      type: object
+      description: One existing contact, addressed by exactly one of `contact_id` and `email`, and its change.
+      properties:
+        contact_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        custom_fields:
+          $ref: '#/components/schemas/CustomFieldValues'
+        custom_fields_add:
+          $ref: '#/components/schemas/CustomFieldMembership'
+        custom_fields_remove:
+          $ref: '#/components/schemas/CustomFieldMembership'
+    FieldActivation:
+      type: string
+      enum: [data_only, activate]
+      description: >-
+        `data_only` (the default) updates values, history and segment membership without triggering Epostix
+        marketing actions; `activate` also lets rules act on the change. Webhook consumers receive the policy and
+        should honor it.
+    FieldJobStatus:
+      type: string
+      enum: [validating, ready, queued, running, completed, partial, failed, cancelled, conflicted, undoing, undone]
+    FieldJob:
+      type: object
+      required:
+        - id
+        - kind
+        - status
+        - source
+        - activation
+        - total
+        - processed
+        - failed
+        - conflicted
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [field_change, field_undo]
+        status:
+          $ref: '#/components/schemas/FieldJobStatus'
+        source:
+          type: string
+          description: Where the job came from, such as `api`, `dashboard` or `undo`.
+        activation:
+          $ref: '#/components/schemas/FieldActivation'
+        total:
+          type: integer
+        processed:
+          type: integer
+          description: Items written (or restored, for an undo job).
+        failed:
+          type: integer
+        conflicted:
+          type: integer
+        undoable:
+          type: boolean
+          nullable: true
+          x-omitempty: false
+        undo_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          x-omitempty: false
+        undoes_operation_id:
+          type: string
+          format: uuid
+          nullable: true
+          x-omitempty: false
+        created_at:
+          type: string
+          format: date-time
+        confirmed_at:
+          type: string
+          format: date-time
+          nullable: true
+          x-omitempty: false
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+          x-omitempty: false
+        cancelled_at:
+          type: string
+          format: date-time
+          nullable: true
+          x-omitempty: false
+    FieldJobResultState:
+      type: string
+      enum: [pending, applied, failed, conflicted, skipped, undone, undo_conflicted]
+    FieldJobResult:
+      type: object
+      required:
+        - position
+        - state
+      properties:
+        position:
+          type: integer
+          description: The item's 1-based position in the request.
+        contact_id:
+          type: string
+          format: uuid
+          nullable: true
+          x-omitempty: false
+        email:
+          type: string
+          nullable: true
+          x-omitempty: false
+        state:
+          $ref: '#/components/schemas/FieldJobResultState'
+        error_code:
+          type: string
+          nullable: true
+          x-omitempty: false
+        error:
+          type: string
+          nullable: true
+          x-omitempty: false
+        contact_version:
+          type: integer
+          format: int64
+          nullable: true
+          x-omitempty: false
+          description: The contact's custom field version after this item was written.
+    FieldJobResultList:
+      type: object
+      required:
+        - data
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/FieldJobResult'
+        next_after:
+          type: integer
+          nullable: true
+          x-omitempty: false
     BulkContactCreateRequest:
       type: object
       required:
