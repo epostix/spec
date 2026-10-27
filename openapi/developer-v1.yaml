@@ -33,6 +33,8 @@ tags:
     description: The people you send to, and their subscription state.
   - name: Tags
     description: Labels that group contacts into an audience.
+  - name: Custom fields
+    description: The workspace's typed contact fields and their options.
   - name: Suppressions
     description: Addresses that will not be sent to, and why.
   - name: Webhooks
@@ -660,7 +662,13 @@ paths:
           required: false
           schema:
             type: string
-          description: Filter events for a specific email.
+          description: Filter events for one recipient of an email, by the email_id that events carry.
+        - name: send_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter events for every recipient of a send, by the id that POST /emails returned.
         - name: domain_id
           in: query
           required: false
@@ -1270,6 +1278,16 @@ paths:
             type: string
             format: date-time
           description: Filter contacts created before this timestamp (ISO 8601).
+        - name: custom_fields
+          in: query
+          required: false
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              type: string
+          description: Comma-separated custom field keys to include as `custom_fields` on each contact. Only these fields are loaded; an unknown or archived key returns 422.
       responses:
         '200':
           description: List of contacts
@@ -1334,7 +1352,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/APIError'
         '409':
-          description: A contact with this email already exists
+          description: A contact with this email already exists (`duplicate_detected`), or the address was deleted together with its custom field data and cannot be added again (`contact_erased`)
           content:
             application/json:
               schema:
@@ -1424,6 +1442,11 @@ paths:
             type: string
             format: email
           description: Email address of the contact (URL-encoded).
+        - name: If-Match
+          in: header
+          required: false
+          description: The ETag of the contact's custom field version this change is based on. When it is stale, nothing is written and the request returns 412.
+          schema: { type: string }
       requestBody:
         required: true
         content:
@@ -1433,6 +1456,10 @@ paths:
       responses:
         '200':
           description: Contact created or updated
+          headers:
+            ETag:
+              description: The contact's custom field version, to send back in If-Match
+              schema: { type: string }
           content:
             application/json:
               schema:
@@ -1449,6 +1476,16 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
+        '409':
+          description: The address was deleted together with its custom field data and cannot be added again (`contact_erased`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
+        '412':
+          description: If-Match does not match the contact's custom field version (`precondition_failed`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
         '422':
           description: Validation error
           content:
@@ -1485,6 +1522,10 @@ paths:
       responses:
         '200':
           description: Contact details
+          headers:
+            ETag:
+              description: The contact's custom field version, to send back in If-Match
+              schema: { type: string }
           content:
             application/json:
               schema:
@@ -1527,6 +1568,11 @@ paths:
           schema:
             type: string
           description: Contact ID.
+        - name: If-Match
+          in: header
+          required: false
+          description: The ETag of the contact's custom field version this change is based on. When it is stale, nothing is written and the request returns 412.
+          schema: { type: string }
       requestBody:
         required: true
         content:
@@ -1536,6 +1582,10 @@ paths:
       responses:
         '200':
           description: Contact updated
+          headers:
+            ETag:
+              description: The contact's custom field version, to send back in If-Match
+              schema: { type: string }
           content:
             application/json:
               schema:
@@ -1564,6 +1614,11 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
+        '412':
+          description: If-Match does not match the contact's custom field version (`precondition_failed`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
         '422':
           description: Validation error
           content:
@@ -1623,6 +1678,42 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
+  /contacts/{contact_id}/custom-fields/history:
+    get:
+      tags: [Contacts]
+      summary: List a contact's custom field history
+      description: "Value revisions of every custom field on one contact, newest first. A write that leaves a value unchanged records nothing. Revisions are kept for the workspace's custom field history retention, 90 days unless the workspace shortened or disabled it."
+      operationId: listContactCustomFieldHistory
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: contact_id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 25, minimum: 1, maximum: 100 }
+        - name: starting_after
+          in: query
+          description: The next_cursor of the previous page.
+          schema: { type: string }
+      responses:
+        '200':
+          description: One page of value revisions, newest first
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomFieldHistory' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: Contact not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
   /contacts/{contact_id}/unsubscribe:
     post:
       tags: [Contacts]
@@ -1910,6 +2001,564 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
+  /custom-fields:
+    get:
+      tags: [Custom fields]
+      summary: List custom fields
+      description: List the workspace's custom field definitions with their options.
+      operationId: listCustomFields
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: lifecycle
+          in: query
+          schema: { $ref: '#/components/schemas/CustomFieldLifecycle' }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 25, minimum: 1, maximum: 100 }
+        - name: starting_after
+          in: query
+          schema: { type: string }
+        - name: ending_before
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: List of custom fields
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomFieldListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [Custom fields]
+      summary: Create a custom field
+      description: Create a custom field definition before writing values to it. Its key and type never change, and a key is never reused in the workspace, even after the field is deleted.
+      operationId: createCustomField
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomFieldCreate' }
+      responses:
+        '201':
+          description: Custom field created
+          headers:
+            ETag:
+              description: The field's version, to send back in If-Match
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomField' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /custom-fields/usage:
+    get:
+      tags: [Custom fields]
+      summary: Get custom field usage
+      description: The workspace's custom field quota, its usage and the effective limits. `warning` turns true at 80% of the active field limit.
+      operationId: getCustomFieldUsage
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Custom field quota and usage
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomFieldUsage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /custom-fields/{field_id}:
+    get:
+      tags: [Custom fields]
+      summary: Get a custom field
+      description: Get one custom field definition with its options.
+      operationId: getCustomField
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: field_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Custom field
+          headers:
+            ETag:
+              description: The field's version, to send back in If-Match
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomField' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    patch:
+      tags: [Custom fields]
+      summary: Update a custom field
+      description: Change the label, description, group or position of an active field. The key, type and stored values do not change.
+      operationId: updateCustomField
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: field_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: If-Match
+          in: header
+          required: false
+          description: The ETag of the field version this change is based on. Required; a missing value returns 428.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomFieldUpdate' }
+      responses:
+        '200':
+          description: Custom field updated
+          headers:
+            ETag:
+              description: The field's version, to send back in If-Match
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomField' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412':
+          description: If-Match does not match the field's current version (`precondition_failed`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428':
+          description: If-Match is required (`precondition_required`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /custom-fields/{field_id}/archive:
+    post:
+      tags: [Custom fields]
+      summary: Archive a custom field
+      description: Archive an active field. It is hidden from new use and rejects new writes; its values and key are kept, and it can be restored.
+      operationId: archiveCustomField
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: field_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: If-Match
+          in: header
+          required: false
+          description: The ETag of the field version this change is based on. Required; a missing value returns 428.
+          schema: { type: string }
+      responses:
+        '200':
+          description: Custom field archived
+          headers:
+            ETag:
+              description: The field's version, to send back in If-Match
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomField' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412':
+          description: If-Match does not match the field's current version (`precondition_failed`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
+        '428':
+          description: If-Match is required (`precondition_required`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /custom-fields/{field_id}/restore:
+    post:
+      tags: [Custom fields]
+      summary: Restore a custom field
+      description: Restore an archived field. It counts against the active field quota again.
+      operationId: restoreCustomField
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: field_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: If-Match
+          in: header
+          required: false
+          description: The ETag of the field version this change is based on. Required; a missing value returns 428.
+          schema: { type: string }
+      responses:
+        '200':
+          description: Custom field restored
+          headers:
+            ETag:
+              description: The field's version, to send back in If-Match
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomField' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412':
+          description: If-Match does not match the field's current version (`precondition_failed`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428':
+          description: If-Match is required (`precondition_required`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /custom-fields/{field_id}/grants:
+    get:
+      tags: [Custom fields]
+      summary: List custom field grants
+      description: The per-role and per-API-key access overrides of a field.
+      operationId: listCustomFieldGrants
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: field_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: The field's grants
+          headers:
+            ETag:
+              description: The field's version, to send back in If-Match
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomFieldGrants' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    put:
+      tags: [Custom fields]
+      summary: Replace custom field grants
+      description: Replace every grant of the field. Revoked access takes effect on the next request.
+      operationId: replaceCustomFieldGrants
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: field_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: If-Match
+          in: header
+          required: false
+          description: The ETag of the field version this change is based on. Required; a missing value returns 428.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomFieldGrants' }
+      responses:
+        '200':
+          description: Grants replaced
+          headers:
+            ETag:
+              description: The field's new version, to send back in If-Match
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomFieldGrants' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412':
+          description: If-Match does not match the field's current version (`precondition_failed`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428':
+          description: If-Match is required (`precondition_required`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /custom-fields/{field_id}/history:
+    get:
+      tags: [Custom fields]
+      summary: List a custom field's history
+      description: "Value revisions of one custom field across every contact, newest first. A write that leaves a value unchanged records nothing. Requires contacts:manage, because revisions carry contact values. Revisions are kept for the workspace's custom field history retention, 90 days unless the workspace shortened or disabled it."
+      operationId: listCustomFieldHistory
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: field_id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 25, minimum: 1, maximum: 100 }
+        - name: starting_after
+          in: query
+          description: The next_cursor of the previous page.
+          schema: { type: string }
+      responses:
+        '200':
+          description: One page of value revisions, newest first
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomFieldHistory' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: Custom field not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /custom-fields/{field_id}/options:
+    post:
+      tags: [Custom fields]
+      summary: Add a custom field option
+      description: Add an option to a select field. It goes last; the option key never changes.
+      operationId: createCustomFieldOption
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: field_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: If-Match
+          in: header
+          required: false
+          description: The ETag of the field version this change is based on. Required; a missing value returns 428.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomFieldOptionCreate' }
+      responses:
+        '201':
+          description: Option added; the response is the whole field
+          headers:
+            ETag:
+              description: The field's version, to send back in If-Match
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomField' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412':
+          description: If-Match does not match the field's current version (`precondition_failed`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428':
+          description: If-Match is required (`precondition_required`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /custom-fields/{field_id}/options/order:
+    put:
+      tags: [Custom fields]
+      summary: Reorder custom field options
+      description: Set the order of a select field's options. Every option, retired or not, is listed exactly once.
+      operationId: reorderCustomFieldOptions
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: field_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: If-Match
+          in: header
+          required: false
+          description: The ETag of the field version this change is based on. Required; a missing value returns 428.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomFieldOptionOrder' }
+      responses:
+        '200':
+          description: Options reordered; the response is the whole field
+          headers:
+            ETag:
+              description: The field's version, to send back in If-Match
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomField' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412':
+          description: If-Match does not match the field's current version (`precondition_failed`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428':
+          description: If-Match is required (`precondition_required`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /custom-fields/{field_id}/options/{option_id}:
+    patch:
+      tags: [Custom fields]
+      summary: Rename a custom field option
+      description: Rename an option. Its key and existing selections do not change.
+      operationId: updateCustomFieldOption
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: field_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: option_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: If-Match
+          in: header
+          required: false
+          description: The ETag of the field version this change is based on. Required; a missing value returns 428.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomFieldOptionUpdate' }
+      responses:
+        '200':
+          description: Option renamed; the response is the whole field
+          headers:
+            ETag:
+              description: The field's version, to send back in If-Match
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomField' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412':
+          description: If-Match does not match the field's current version (`precondition_failed`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428':
+          description: If-Match is required (`precondition_required`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /custom-fields/{field_id}/options/{option_id}/retire:
+    post:
+      tags: [Custom fields]
+      summary: Retire a custom field option
+      description: Retire an option. Existing selections stay readable; new assignments of the option are rejected.
+      operationId: retireCustomFieldOption
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: field_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: option_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: If-Match
+          in: header
+          required: false
+          description: The ETag of the field version this change is based on. Required; a missing value returns 428.
+          schema: { type: string }
+      responses:
+        '200':
+          description: Option retired; the response is the whole field
+          headers:
+            ETag:
+              description: The field's version, to send back in If-Match
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomField' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412':
+          description: If-Match does not match the field's current version (`precondition_failed`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
+        '428':
+          description: If-Match is required (`precondition_required`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
   /api-keys:
     get:
       tags: [API keys]
@@ -4127,8 +4776,9 @@ components:
         email_id:
           type: string
           description: >
-            ID of the email this event belongs to. Present for every email.* event and
-            absent for email.received and webhook.test.
+            ID of the recipient this event belongs to. A send to several to, cc and bcc addresses has one
+            email_id per address, and data.send_id names the send they share. Present for every email.* event
+            and absent for email.received and webhook.test.
         inbound_id:
           type: string
           description: ID of the inbound message. Present only on email.received.
@@ -4140,7 +4790,13 @@ components:
           type: object
           additionalProperties: true
           description: |
-            Event-specific data. Every email event carries to, from and subject. The rest varies by event type:
+            Event-specific data. Every email event carries to, from and subject, and identifies the send it belongs to:
+            - **send_id**: the id that POST /emails returned for the send, shared by every recipient of it
+            - **metadata**: the metadata the send was submitted with, or null
+            - **tags**: the tags the send was submitted with, or an empty array
+            - **idempotency_key**: the idempotency key the send was submitted with, or null
+
+            Webhook deliveries also carry email_id, the recipient's own id. The rest varies by event type:
             - **sent**: nothing more
             - **delivered**: attempt, mx_hostname, smtp_response
             - **bounced**: fault, reason, permanent, source, provider, smtp_code, enhanced_status_code, response.
@@ -4152,12 +4808,19 @@ components:
               bounce, an object with the bounced fields above, present only when the receiving system gave a verdict
             - **failed** also carries failure, an object with reason (see EmailFailureReason) and fault (see EmailFailureFault).
               It is absent on emails that failed before failures were recorded.
+
+            A recipient handed over for delivery gets sent once, may get delayed any number of times, and ends in
+            delivered, failed or cancelled. bounced reports a receiving system's verdict and is never sent for a
+            message that was not attempted. A suppressed recipient is never attempted: it gets a single failed event
+            whose failure.reason is suppressed, and bounce.source is suppression_list when the address recently hard
+            bounced for another sender.
             - **opened**: ip_address, user_agent, open_source, device_type, os, os_version, client, client_version, is_bot, is_machine_open
             - **clicked**: url, ip_address, user_agent, the opened fields and is_machine_click
             - **complained**: feedback_type, provider (see MailboxProvider), reported_at
             - **suppression.created/removed**: see SuppressionEventData. suppression.created fires when an address
               gains its first suppression and suppression.removed when it loses its last one.
             - **contact.status_changed**: see ContactStatusChangedEventData
+            - **contact.fields_changed**: see ContactFieldsChangedEventData
 
             Test mode events also carry simulated and outcome.
 
@@ -4769,6 +5432,7 @@ components:
             - domain_review_rejected
             - invalid_from_address
             - duplicate_detected
+            - contact_erased
             - invalid_schedule
             - email_not_cancellable
             - batch_too_large
@@ -4786,6 +5450,10 @@ components:
             - api_key_in_use
             - webhook_limit_reached
             - webhook_url_not_allowed
+            - custom_field_limit_reached
+            - custom_field_state_conflict
+            - precondition_failed
+            - precondition_required
             - internal_error
             - service_unavailable
           description: Machine-readable error type.
@@ -4803,6 +5471,9 @@ components:
           items:
             $ref: '#/components/schemas/APIErrorDetail'
           description: Additional error details for validation errors.
+        retryable:
+          type: boolean
+          description: Whether repeating the identical request can succeed. Present on custom field value errors, which are never retryable.
     APIErrorDetail:
       type: object
       required:
@@ -4819,6 +5490,9 @@ components:
         code:
           type: string
           description: Machine-readable error code for this field.
+        constraint:
+          type: string
+          description: The constraint the value must satisfy. Never contains the submitted value.
     DomainCreateRequest:
       type: object
       required:
@@ -5127,6 +5801,8 @@ components:
           nullable: true
           x-omitempty: false
           description: Last activity timestamp (read-only).
+        custom_fields:
+          $ref: '#/components/schemas/CustomFieldValues'
         created_at:
           type: string
           format: date-time
@@ -5135,6 +5811,8 @@ components:
           type: string
           format: date-time
           description: When the contact was last updated.
+        custom_field_sources:
+          $ref: '#/components/schemas/CustomFieldSources'
     ContactCreate:
       type: object
       required:
@@ -5153,6 +5831,14 @@ components:
           items:
             type: string
           description: Tag IDs to assign to the contact. Every ID must be a tag in this workspace; otherwise the request fails with 400 and nothing is written. In a bulk request, a contact with an unknown tag is not written and is reported with code `tag_not_found`.
+        custom_fields:
+          $ref: '#/components/schemas/CustomFieldValues'
+        custom_fields_add:
+          $ref: '#/components/schemas/CustomFieldMembership'
+        custom_fields_remove:
+          $ref: '#/components/schemas/CustomFieldMembership'
+        custom_field_sources:
+          $ref: '#/components/schemas/CustomFieldSourceWrites'
     ContactUpdate:
       type: object
       properties:
@@ -5177,6 +5863,14 @@ components:
           items:
             type: string
           description: Tag IDs to remove, keeping the contact's other tags. An ID cannot appear in both `add_tag_ids` and `remove_tag_ids`. Every ID must be a tag in this workspace; otherwise the request fails with 400 and nothing is written.
+        custom_fields:
+          $ref: '#/components/schemas/CustomFieldValues'
+        custom_fields_add:
+          $ref: '#/components/schemas/CustomFieldMembership'
+        custom_fields_remove:
+          $ref: '#/components/schemas/CustomFieldMembership'
+        custom_field_sources:
+          $ref: '#/components/schemas/CustomFieldSourceWrites'
     ContactUpsert:
       type: object
       properties:
@@ -5201,6 +5895,166 @@ components:
           items:
             type: string
           description: Tag IDs to remove, keeping the contact's other tags. An ID cannot appear in both `add_tag_ids` and `remove_tag_ids`. Every ID must be a tag in this workspace; otherwise the request fails with 400 and nothing is written.
+        custom_fields:
+          $ref: '#/components/schemas/CustomFieldValues'
+        custom_fields_add:
+          $ref: '#/components/schemas/CustomFieldMembership'
+        custom_fields_remove:
+          $ref: '#/components/schemas/CustomFieldMembership'
+        custom_field_sources:
+          $ref: '#/components/schemas/CustomFieldSourceWrites'
+    CustomFieldValues:
+      type: object
+      additionalProperties: true
+      description: >
+        Custom field values keyed by field key, in each field's canonical form: strings for
+        text, URL, date (`2026-11-30`), datetime (`2026-11-30T09:00:00Z`), birthday (`02-29`),
+        single select (the option key) and decimal (an exact decimal string such as `"1250.5"`);
+        a JSON integer for integer fields; `true` or `false` for boolean fields; and an array
+        of option keys for multiselect fields. On a contact, every stored value of the
+        workspace's active fields is returned when the contact is fetched, and only when the
+        request carried custom fields after a write; lists include the fields named in
+        `custom_fields`. In a request, an omitted key keeps its value, `null` removes it, and
+        `""`, `[]`, `false` and `0` are stored values; an empty string is only accepted on
+        text fields. An array on a multiselect replaces the whole selection. The whole map is
+        validated before anything is written. `custom_fields: null` is rejected; remove
+        fields one at a time. Not accepted by bulk creation.
+    CustomFieldSourceWrites:
+      type: object
+      additionalProperties:
+        $ref: '#/components/schemas/CustomFieldSourceWrite'
+      description: >
+        Provenance for the custom fields written in the same request, keyed by field key. A
+        field that is integration managed by the calling API key requires `ownership_version`
+        and `revision`: an older revision is rejected with `stale_revision`, repeating the
+        stored revision with the same value changes nothing, repeating it with a different
+        value is rejected with `revision_conflict`, and a write carrying a former ownership
+        version is rejected with `ownership_version_stale`. `observed_at` may be sent for any
+        field and must not be in the future.
+    CustomFieldSourceWrite:
+      type: object
+      properties:
+        ownership_version:
+          type: integer
+          format: int64
+          minimum: 1
+          description: The field's ownership version the write is based on.
+        revision:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 9007199254740991
+          description: Increases with every change the integration makes to this contact's field.
+        observed_at:
+          type: string
+          format: date-time
+          description: When the source system observed the value.
+    CustomFieldSources:
+      type: object
+      additionalProperties:
+        $ref: '#/components/schemas/CustomFieldSource'
+      description: Where each stored custom value came from, keyed by field key.
+    CustomFieldSource:
+      type: object
+      required: [source, source_id, ownership_version, revision, observed_at, committed_at, stale]
+      properties:
+        source:
+          type: string
+          description: The writer kind (dashboard, api or merge); empty for a value stored before sources were recorded.
+        source_id:
+          type: string
+          description: The user or API key that wrote the value.
+        ownership_version:
+          type: integer
+          format: int64
+        revision:
+          type: integer
+          format: int64
+          nullable: true
+          x-omitempty: false
+        observed_at:
+          type: string
+          format: date-time
+          nullable: true
+          x-omitempty: false
+        committed_at:
+          type: string
+          format: date-time
+        stale:
+          type: boolean
+          nullable: true
+          x-omitempty: false
+          description: Whether the value is past the field's freshness expectation; null when the field has none.
+    CustomFieldHistory:
+      type: object
+      required: [data, has_more]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/CustomFieldRevision' }
+        has_more:
+          type: boolean
+        next_cursor:
+          type: string
+          description: Pass as starting_after to read the next, older page. Absent on the last page.
+    CustomFieldRevision:
+      type: object
+      required: [id, contact_id, field_id, field_key, actor, source, operation_id, contact_version, committed_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        contact_id:
+          type: string
+          format: uuid
+        field_id:
+          type: string
+          format: uuid
+        field_key:
+          type: string
+        before:
+          description: The value before the change, in the field's canonical form. Absent when the field was not set.
+        after:
+          description: The value after the change, in the field's canonical form. Absent when the change cleared the field.
+        actor: { $ref: '#/components/schemas/CustomFieldActor' }
+        source: { $ref: '#/components/schemas/CustomFieldChangeSource' }
+        operation_id:
+          type: string
+          format: uuid
+          description: Shared by every revision written by the same request.
+        contact_version:
+          type: integer
+          format: int64
+          description: The contact's custom field version (its ETag) after the change.
+        committed_at:
+          type: string
+          format: date-time
+    CustomFieldActor:
+      type: object
+      required: [kind, id]
+      properties:
+        kind:
+          type: string
+          enum: [user, api_key]
+        id:
+          type: string
+          description: The dashboard user or API key that made the change.
+    CustomFieldChangeSource:
+      type: string
+      enum: [dashboard, api]
+      description: Where the change came from. Treat this enum as open; later releases add sources such as imports.
+    CustomFieldMembership:
+      type: object
+      additionalProperties:
+        type: array
+        items:
+          type: string
+      description: >
+        Option keys to add to or remove from multiselect fields, keyed by field key, keeping
+        the field's other options. Adding to a field without a value creates the selection;
+        removing its last option leaves an empty selection. Duplicates, empty lists and
+        removing an option that is not selected change nothing. A field may appear in only
+        one of `custom_fields`, `custom_fields_add` and `custom_fields_remove`.
     ContactListResponse:
       type: object
       required:
@@ -5261,7 +6115,7 @@ components:
                 description: Error message.
               code:
                 type: string
-                description: Error code — `validation_error`, `tag_not_found` or `internal_error`.
+                description: Error code — `validation_error`, `tag_not_found`, `contact_erased` or `internal_error`.
           description: Details of failed contacts.
     Tag:
       type: object
@@ -5317,15 +6171,207 @@ components:
           type: boolean
         next_cursor:
           type: string
+    CustomFieldType:
+      type: string
+      enum:
+        - short_text
+        - long_text
+        - integer
+        - decimal
+        - boolean
+        - date
+        - datetime
+        - birthday
+        - single_select
+        - multiselect
+        - url
+    CustomFieldLifecycle:
+      type: string
+      enum:
+        - active
+        - archived
+    CustomFieldOperation:
+      type: string
+      enum:
+        - update
+        - archive
+        - restore
+        - add_option
+        - update_option
+        - retire_option
+        - reorder_options
+    CustomFieldOption:
+      type: object
+      required: [id, key, label, position, retired, retired_at]
+      properties:
+        id: { type: string, format: uuid }
+        key: { type: string }
+        label: { type: string }
+        position: { type: integer }
+        retired: { type: boolean }
+        retired_at:
+          type: string
+          format: date-time
+          nullable: true
+          x-omitempty: false
+    CustomField:
+      type: object
+      required: [id, key, label, description, group, position, type, lifecycle, version, options, internal_only, access, permitted_operations, created_at, updated_at, archived_at]
+      properties:
+        id: { type: string, format: uuid }
+        key:
+          type: string
+          description: Immutable API key, used to address the field in contact writes.
+        label: { type: string }
+        description: { type: string }
+        group: { type: string }
+        position: { type: integer }
+        type: { $ref: '#/components/schemas/CustomFieldType' }
+        lifecycle: { $ref: '#/components/schemas/CustomFieldLifecycle' }
+        version:
+          type: integer
+          format: int64
+          description: Increases with every change; the ETag carries it.
+        options:
+          type: array
+          description: Select options in display order, retired ones included.
+          items: { $ref: '#/components/schemas/CustomFieldOption' }
+        internal_only:
+          type: boolean
+          description: Never offered on forms and never used to personalize campaigns.
+        access: { $ref: '#/components/schemas/CustomFieldPermissions' }
+        permitted_operations:
+          type: array
+          description: What this API key may do with the field in its current state.
+          items: { $ref: '#/components/schemas/CustomFieldOperation' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at:
+          type: string
+          format: date-time
+          nullable: true
+          x-omitempty: false
+    CustomFieldPermissions:
+      type: object
+      description: What a role or API key may do with the field's values. Write, personalize and export need read.
+      required: [read, write, personalize, export]
+      properties:
+        read: { type: boolean }
+        write: { type: boolean }
+        personalize: { type: boolean }
+        export: { type: boolean }
+    CustomFieldGrant:
+      type: object
+      required: [subject_kind, subject_id, permissions]
+      properties:
+        subject_kind:
+          type: string
+          enum: [role, api_key]
+        subject_id:
+          type: string
+          description: A role value (a built-in role name or role:<id>) or an API key ID.
+        permissions: { $ref: '#/components/schemas/CustomFieldPermissions' }
+    CustomFieldGrants:
+      type: object
+      description: Overrides of the field's default access. A role without a grant can read and write the field as far as its workspace permissions allow; an API key without a grant cannot use it. The owner always has full access.
+      required: [grants]
+      properties:
+        grants:
+          type: array
+          maxItems: 500
+          items: { $ref: '#/components/schemas/CustomFieldGrant' }
+    CustomFieldLimits:
+      type: object
+      required: [key_max_length, label_max_length, description_max_length, group_max_length, option_label_max_length, options_per_field]
+      properties:
+        key_max_length: { type: integer }
+        label_max_length: { type: integer }
+        description_max_length: { type: integer }
+        group_max_length: { type: integer }
+        option_label_max_length: { type: integer }
+        options_per_field: { type: integer }
+    CustomFieldUsage:
+      type: object
+      required: [active, active_limit, retained, retained_limit, warning_percent, warning, limits]
+      properties:
+        active:
+          type: integer
+          description: Active definitions, counted against active_limit.
+        active_limit: { type: integer }
+        retained:
+          type: integer
+          description: Active and archived definitions, counted against retained_limit.
+        retained_limit: { type: integer }
+        warning_percent: { type: integer }
+        warning:
+          type: boolean
+          description: True once active reaches warning_percent of active_limit.
+        limits: { $ref: '#/components/schemas/CustomFieldLimits' }
+    CustomFieldListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/CustomField' }
+        has_more: { type: boolean }
+        next_cursor: { type: string }
+    CustomFieldOptionCreate:
+      type: object
+      required: [key, label]
+      properties:
+        key: { type: string, pattern: '^[a-z][a-z0-9_]{0,63}$' }
+        label: { type: string, maxLength: 200 }
+    CustomFieldCreate:
+      type: object
+      required: [key, label, type]
+      properties:
+        key: { type: string, pattern: '^[a-z][a-z0-9_]{0,63}$' }
+        label: { type: string, maxLength: 100 }
+        description: { type: string, maxLength: 1000 }
+        group: { type: string, maxLength: 60 }
+        type: { $ref: '#/components/schemas/CustomFieldType' }
+        internal_only: { type: boolean }
+        options:
+          type: array
+          description: Required for single_select and multiselect, rejected for other types.
+          maxItems: 1000
+          items: { $ref: '#/components/schemas/CustomFieldOptionCreate' }
+    CustomFieldUpdate:
+      type: object
+      properties:
+        label: { type: string, maxLength: 100 }
+        description: { type: string, maxLength: 1000 }
+        group: { type: string, maxLength: 60 }
+        position: { type: integer, minimum: 0 }
+        internal_only: { type: boolean }
+    CustomFieldOptionUpdate:
+      type: object
+      required: [label]
+      properties:
+        label: { type: string, maxLength: 200 }
+    CustomFieldOptionOrder:
+      type: object
+      required: [option_ids]
+      properties:
+        option_ids:
+          type: array
+          items: { type: string, format: uuid }
     PermissionScope:
       type: string
       enum:
         - sending
         - 'emails:read'
+        - 'domains:read'
         - 'domains:manage'
+        - 'contacts:read'
         - 'contacts:manage'
+        - 'custom-fields:read'
+        - 'custom-fields:manage'
+        - 'webhooks:read'
         - 'webhooks:manage'
         - 'analytics:read'
+        - 'api-keys:read'
         - 'api-keys:manage'
         - 'suppressions:read'
         - 'suppressions:manage'
@@ -5347,7 +6393,7 @@ components:
       description: >
         A permission scope, optionally narrowed to one domain with the suffix
         `:domain:{domain_name}`. Base scopes grant access to all domains.
-        Per-domain restriction is supported for `sending`, `emails:read`, and `domains:manage`,
+        Per-domain restriction is supported for `sending`, `emails:read`, `domains:read` and `domains:manage`,
         so `sending:domain:acme.com` restricts sending to acme.com only. Multiple
         domain-scoped permissions can be combined. See `PermissionScope` for the base
         vocabulary.
@@ -5578,6 +6624,7 @@ components:
         - campaign.auto_paused
         - contact.status_changed
         - contact.import_completed
+        - contact.fields_changed
         - suppression.created
         - suppression.removed
         - webhook.test
@@ -5630,6 +6677,7 @@ components:
         - campaign.auto_paused
         - contact.status_changed
         - contact.import_completed
+        - contact.fields_changed
         - suppression.created
         - suppression.removed
       description: >
@@ -5659,6 +6707,15 @@ components:
             workspace. Only email.* and domain.*/tracking_domain.* events carry a domain, so
             an endpoint subscribed to a campaign.*, contact.* or suppression.* event must
             leave this empty.
+        custom_field_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: >
+            The custom fields a contact.fields_changed subscription may receive. Required with
+            that event and only allowed with it; a change to any other field is left out of the
+            payload, and an event with none of these fields is not delivered.
         description:
           type: string
           description: Optional description of the webhook endpoint.
@@ -5684,6 +6741,11 @@ components:
           type: array
           items: { $ref: '#/components/schemas/WebhookEventType' }
         domain_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        custom_field_ids:
           type: array
           items:
             type: string
@@ -5719,6 +6781,11 @@ components:
           type: array
           items: { $ref: '#/components/schemas/WebhookEventType' }
         domain_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        custom_field_ids:
           type: array
           items:
             type: string
@@ -5764,6 +6831,15 @@ components:
             workspace. Only email.* and domain.*/tracking_domain.* events carry a domain, so
             an endpoint subscribed to a campaign.*, contact.* or suppression.* event must
             leave this empty.
+        custom_field_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: >
+            The custom fields a contact.fields_changed subscription may receive. Required with
+            that event and only allowed with it; a change to any other field is left out of the
+            payload, and an event with none of these fields is not delivered.
         description:
           type: string
         active:
@@ -6133,6 +7209,50 @@ components:
         changed_at:
           type: string
           format: date-time
+
+    ContactFieldsChangedEventData:
+      type: object
+      description: >
+        The data of contact.fields_changed events. Delivery is at least once and unordered:
+        deduplicate on the event id and ignore an event whose contact_version is not newer
+        than one already applied for the contact. changes lists only the fields the endpoint
+        is allowed, in canonical form; a field the change left unset has no before, and a
+        cleared field has no after. activation tells whether the change may trigger marketing
+        actions (activate) or should only update data (data_only); honour it in automations.
+      required: [contact_id, contact_version, schema_version, source, activation, actor, operation_id, committed_at, changes]
+      properties:
+        contact_id:
+          type: string
+        contact_version:
+          type: integer
+          format: int64
+        schema_version:
+          type: integer
+          description: Version of this payload's shape, currently 1.
+        source: { $ref: '#/components/schemas/CustomFieldChangeSource' }
+        activation:
+          type: string
+          enum: [data_only, activate]
+        actor: { $ref: '#/components/schemas/CustomFieldActor' }
+        operation_id:
+          type: string
+        committed_at:
+          type: string
+          format: date-time
+        changes:
+          type: array
+          items:
+            type: object
+            required: [field_id, key]
+            properties:
+              field_id:
+                type: string
+              key:
+                type: string
+              before:
+                description: The value before the change. Absent when the field was not set.
+              after:
+                description: The value after the change. Absent when the change cleared it.
 
     EmailFailureReason:
       type: string
