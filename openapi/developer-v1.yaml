@@ -1375,6 +1375,61 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
+  /contacts/search:
+    post:
+      tags: [Contacts]
+      summary: Search contacts
+      description: >-
+        List the contacts matching a typed predicate over standard properties and custom fields, with
+        cursor-based pagination. The predicate is evaluated once at the request time in the workspace's
+        audience timezone. A predicate or sort that references an archived, deleted or unreadable custom
+        field is refused with `predicate_broken` and nothing is evaluated.
+      operationId: searchContacts
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContactSearchRequest'
+      responses:
+        '200':
+          description: Matching contacts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContactListResponse'
+        '400':
+          description: Bad request (e.g., invalid cursor)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '422':
+          description: The predicate is invalid (`validation_error`) or references a field that cannot be used (`predicate_broken`, one detail per field)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
   /contacts/bulk:
     post:
       tags: [Contacts]
@@ -5452,6 +5507,7 @@ components:
             - webhook_url_not_allowed
             - custom_field_limit_reached
             - custom_field_state_conflict
+            - predicate_broken
             - precondition_failed
             - precondition_required
             - internal_error
@@ -6071,6 +6127,140 @@ components:
         next_cursor:
           type: string
           description: Cursor to use as starting_after for the next page.
+    ContactSearchRequest:
+      type: object
+      properties:
+        where:
+          $ref: '#/components/schemas/ContactPredicate'
+        sort_field:
+          type: string
+          format: uuid
+          description: >-
+            Sort by a custom field instead of newest first: numerically or chronologically, case-folded for
+            short text and URLs, and by option label for single select. Contacts without a value come last in
+            both directions, ties are broken by contact ID. Long text, multiselect and boolean fields cannot be sorted.
+        sort_order:
+          type: string
+          enum: [asc, desc]
+        limit:
+          type: integer
+          default: 25
+          minimum: 1
+          maximum: 100
+        starting_after:
+          type: string
+          description: Cursor for forward pagination (a contact ID from a previous page).
+        ending_before:
+          type: string
+          description: Cursor for backward pagination.
+        custom_fields:
+          type: array
+          description: Custom field keys to include as `custom_fields` on each contact.
+          items:
+            type: string
+    ContactPredicate:
+      type: object
+      description: >-
+        One node of a contact predicate: either a group (`match` and `children`) or a condition
+        (`field`, `operator` and the operand members its operator needs). Custom field conditions
+        use `field: custom_field` with `field_id`, and select options are identified by option ID.
+        Negative operators never match contacts without a value; select them with `is_not_set`.
+      properties:
+        match:
+          type: string
+          enum: [all, any]
+        children:
+          type: array
+          items:
+            $ref: '#/components/schemas/ContactPredicate'
+        field:
+          type: string
+          enum:
+            - email
+            - name
+            - status
+            - source
+            - engagement_tier
+            - tag
+            - created_at
+            - last_activity_at
+            - campaigns_received_count
+            - custom_field
+        field_id:
+          type: string
+          format: uuid
+        operator:
+          type: string
+          enum:
+            - eq
+            - neq
+            - contains
+            - not_contains
+            - starts_with
+            - ends_with
+            - is_empty
+            - is_not_empty
+            - any_of
+            - all_of
+            - none_of
+            - gt
+            - gte
+            - lt
+            - lte
+            - between
+            - within_last
+            - within_next
+            - never
+            - "on"
+            - is_set
+            - is_not_set
+            - is_true
+            - is_false
+            - anniversary_within
+            - is_stale
+        text:
+          type: string
+        values:
+          type: array
+          description: Tag IDs, option IDs or enum values.
+          items:
+            type: string
+        number:
+          type: integer
+          format: int64
+        upper_number:
+          type: integer
+          format: int64
+        decimal:
+          type: string
+          description: Exact decimal such as `"1250.50"`.
+        upper_decimal:
+          type: string
+        date:
+          type: string
+          format: date
+          description: Calendar date for date fields and for `on` over a datetime field.
+        upper_date:
+          type: string
+          format: date
+        time:
+          type: string
+          format: date-time
+        upper_time:
+          type: string
+          format: date-time
+        birthday:
+          type: string
+          description: Month and day such as `"02-29"`.
+        window:
+          type: object
+          required: [amount, unit]
+          properties:
+            amount:
+              type: integer
+            unit:
+              type: string
+              enum: [hours, days, weeks, months]
     BulkContactCreateRequest:
       type: object
       required:
