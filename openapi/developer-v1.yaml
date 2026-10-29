@@ -1481,6 +1481,521 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
+  /contacts/exports:
+    post:
+      tags: [Contacts]
+      summary: Create a contact export
+      description: >-
+        Export contacts asynchronously. `spreadsheet_csv` writes the standard columns plus the selected custom
+        fields under their labels and escapes formula-triggering cells with a leading apostrophe. `package` writes a
+        zip with `contacts.jsonl` and `manifest.json` that keeps option keys, types, empty versus missing values and
+        exact decimals, and can be restored with `POST /contacts/restores`. The API key needs the export grant on
+        every selected field. The file can be downloaded for 7 days while the key keeps that access.
+      operationId: createContactExport
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: Unique key for this request, scoped to the workspace and kept for 24 hours.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContactExportCreate'
+      responses:
+        '202':
+          description: The export was queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContactExport'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '403':
+          description: Insufficient scope or access
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+  /contacts/exports/{export_id}:
+    get:
+      tags: [Contacts]
+      summary: Get a contact export
+      operationId: getContactExport
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: export_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The export
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContactExport'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '403':
+          description: Insufficient scope or access
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+  /contacts/exports/{export_id}/file:
+    get:
+      tags: [Contacts]
+      summary: Download a contact export
+      description: >-
+        Download the file of a completed export. Access is checked on every download; a key that lost the export
+        grant on any exported field gets 403 `export_access_revoked`.
+      operationId: downloadContactExport
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: export_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The export file
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '403':
+          description: Insufficient scope or access
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '410':
+          description: Gone
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+  /contacts/restores:
+    post:
+      tags: [Contacts]
+      summary: Restore contacts from an export package
+      description: >-
+        Upload a `package` export (at most 50 MB through the API). The version and checksum are verified, a field mapping is
+        proposed and every contact is validated; the restore then waits at `ready` until it is confirmed. A restore
+        never changes the status of an existing contact and never recreates an erased one. It is `data_only` unless
+        confirmed with `activation: activate`, and its changes can be undone through
+        `POST /contacts/field-operations/{operation_id}/undo` with the restore's ID.
+      operationId: createContactRestore
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: Unique key for this request, scoped to the workspace and kept for 24 hours.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '202':
+          description: Validating
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContactRestore'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '403':
+          description: Insufficient scope or access
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '413':
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+  /contacts/restores/{restore_id}:
+    get:
+      tags: [Contacts]
+      summary: Get a contact restore
+      description: The restore with its package summary, field mapping and the conflicts against the current fields.
+      operationId: getContactRestore
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: restore_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The restore
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContactRestore'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '403':
+          description: Insufficient scope or access
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+  /contacts/restores/{restore_id}/plan:
+    put:
+      tags: [Contacts]
+      summary: Map the fields of a contact restore
+      description: >-
+        Replace the field mapping of a restore that has not started and validate it again. Every package field
+        needs a `map`, `create` or `skip` choice. Grants are applied only where mapped here; mapping field ownership
+        to an API key is a dashboard decision.
+      operationId: reviseContactRestore
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: restore_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContactRestorePlan'
+      responses:
+        '200':
+          description: Validating again
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContactRestore'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '403':
+          description: Insufficient scope or access
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+  /contacts/restores/{restore_id}/confirm:
+    post:
+      tags: [Contacts]
+      summary: Confirm a contact restore
+      description: >-
+        Run a `ready` restore. Fields chosen for creation are created first. When some contacts failed validation,
+        `accept_failed_rows` must be true; they stay unchanged.
+      operationId: confirmContactRestore
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: restore_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContactRestoreConfirm'
+      responses:
+        '200':
+          description: The restore was queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContactRestore'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '403':
+          description: Insufficient scope or access
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+  /contacts/restores/{restore_id}/results:
+    get:
+      tags: [Contacts]
+      summary: List a contact restore's results
+      description: One result per contact line of the package, in package order. Values are never echoed back.
+      operationId: listContactRestoreResults
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: restore_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: state
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/FieldJobResultState'
+        - name: after
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 1000
+      responses:
+        '200':
+          description: A page of results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FieldJobResultList'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '403':
+          description: Insufficient scope or access
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
   /contacts/field-jobs:
     post:
       tags: [Contacts]
@@ -2231,6 +2746,73 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
+  /contacts/{contact_id}/preference-links:
+    post:
+      tags: [Contacts]
+      summary: Create a preference link
+      description: >
+        Create a signed link that lets the contact edit the fields a collection form collects.
+        The link works once, expires after 24 hours, and opens a 30-minute session when the recipient confirms it.
+        It never changes the contact's subscription status.
+      operationId: createPreferenceLink
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: contact_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Contact ID.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [form_key]
+              properties:
+                form_key:
+                  type: string
+                  maxLength: 64
+                  description: The key of an open collection form.
+      responses:
+        '201':
+          description: The link was created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreferenceLink'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '404':
+          description: Contact or form not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
   /contacts/{contact_id}/tags/{tag_id}:
     post:
       tags: [Contacts]
@@ -2659,6 +3241,127 @@ paths:
               schema: { $ref: '#/components/schemas/APIError' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '500': { $ref: '#/components/responses/InternalError' }
+  /custom-fields/{field_id}/constraint-violations:
+    get:
+      tags: [Custom fields]
+      summary: List constraint violations
+      description: List the contacts whose stored value breaks the field's pending constraint change, ordered by contact. Empty when no change is pending.
+      operationId: listCustomFieldConstraintViolations
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: field_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: after
+          in: query
+          required: false
+          description: The `next_cursor` of the previous page.
+          schema: { type: string, format: uuid }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 100 }
+      responses:
+        '200':
+          description: One page of violating contacts
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomFieldConstraintViolationList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /custom-fields/{field_id}/constraints/activate:
+    post:
+      tags: [Custom fields]
+      summary: Activate a constraint change
+      description: Make the pending constraint change active. Refused with 409 (`custom_field_state_conflict`) while any stored value still violates it.
+      operationId: activateCustomFieldConstraints
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: field_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: If-Match
+          in: header
+          required: false
+          description: The ETag of the field version this change is based on. Required; a missing value returns 428.
+          schema: { type: string }
+      responses:
+        '200':
+          description: The pending constraints are now active
+          headers:
+            ETag:
+              description: The field's version, to send back in If-Match
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomField' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412':
+          description: If-Match does not match the field's current version (`precondition_failed`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
+        '428':
+          description: If-Match is required (`precondition_required`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /custom-fields/{field_id}/constraints/cancel:
+    post:
+      tags: [Custom fields]
+      summary: Cancel a constraint change
+      description: Discard the pending constraint change and keep the active constraints.
+      operationId: cancelCustomFieldConstraints
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: field_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: If-Match
+          in: header
+          required: false
+          description: The ETag of the field version this change is based on. Required; a missing value returns 428.
+          schema: { type: string }
+      responses:
+        '200':
+          description: The pending constraint change was discarded
+          headers:
+            ETag:
+              description: The field's version, to send back in If-Match
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomField' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412':
+          description: If-Match does not match the field's current version (`precondition_failed`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
+        '428':
+          description: If-Match is required (`precondition_required`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
   /custom-fields/{field_id}/restore:
     post:
       tags: [Custom fields]
@@ -2843,6 +3546,56 @@ paths:
       responses:
         '201':
           description: Option added; the response is the whole field
+          headers:
+            ETag:
+              description: The field's version, to send back in If-Match
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomField' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412':
+          description: If-Match does not match the field's current version (`precondition_failed`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428':
+          description: If-Match is required (`precondition_required`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /custom-fields/{field_id}/children:
+    post:
+      tags: [Custom fields]
+      summary: Add a custom field child
+      description: Add a child field to an object or repeatable object. The path names the root field; parent_id picks a nested container and defaults to the root. The child goes last, counts toward the field quota and follows the root's lifecycle, ownership and grants.
+      operationId: createCustomFieldChild
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: field_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: If-Match
+          in: header
+          required: false
+          description: The ETag of the root field version this change is based on. Required; a missing value returns 428.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomFieldChildAdd' }
+      responses:
+        '201':
+          description: Child added; the response is the whole root field
           headers:
             ETag:
               description: The field's version, to send back in If-Match
@@ -5910,9 +6663,15 @@ components:
             - api_key_in_use
             - webhook_limit_reached
             - webhook_url_not_allowed
+            - custom_field_calculating
             - custom_field_limit_reached
             - custom_field_state_conflict
             - field_job_state_conflict
+            - export_not_ready
+            - export_expired
+            - export_access_revoked
+            - restore_package_invalid
+            - restore_mapping_conflict
             - predicate_broken
             - precondition_failed
             - precondition_required
@@ -6378,9 +7137,15 @@ components:
         request carried custom fields after a write; lists include the fields named in
         `custom_fields`. In a request, an omitted key keeps its value, `null` removes it, and
         `""`, `[]`, `false` and `0` are stored values; an empty string is only accepted on
-        text fields. An array on a multiselect replaces the whole selection. The whole map is
-        validated before anything is written. `custom_fields: null` is rejected; remove
-        fields one at a time. Not accepted by bulk creation.
+        text fields. An array on a multiselect replaces the whole selection. A list field is
+        an array of its item type, kept in order without duplicates. An object field is an
+        object of its child fields: in a request, omitted children keep their values and a
+        child `null` removes that child. A repeatable object is an array of objects, each with
+        a unique `item_id`; sending the array replaces every item and needs the contact's
+        custom field version in If-Match (`version_required` otherwise). An empty object or
+        array is a stored value distinct from no value. The whole map is validated before
+        anything is written. `custom_fields: null` is rejected; remove fields one at a time.
+        Not accepted by bulk creation.
     CustomFieldSourceWrites:
       type: object
       additionalProperties:
@@ -6491,32 +7256,44 @@ components:
         committed_at:
           type: string
           format: date-time
+    PreferenceLink:
+      type: object
+      required: [url, expires_at]
+      properties:
+        url:
+          type: string
+          format: uri
+        expires_at:
+          type: string
+          format: date-time
     CustomFieldActor:
       type: object
       required: [kind, id]
       properties:
         kind:
           type: string
-          enum: [user, api_key]
+          enum: [user, api_key, recipient]
         id:
           type: string
-          description: The dashboard user or API key that made the change.
+          description: The dashboard user or API key that made the change, or for a recipient the collection form and its version.
     CustomFieldChangeSource:
       type: string
-      enum: [dashboard, api]
+      enum: [dashboard, api, import, form]
       description: Where the change came from. Treat this enum as open; later releases add sources such as imports.
     CustomFieldMembership:
       type: object
-      additionalProperties:
-        type: array
-        items:
-          type: string
+      additionalProperties: true
       description: >
         Option keys to add to or remove from multiselect fields, keyed by field key, keeping
         the field's other options. Adding to a field without a value creates the selection;
         removing its last option leaves an empty selection. Duplicates, empty lists and
-        removing an option that is not selected change nothing. A field may appear in only
-        one of `custom_fields`, `custom_fields_add` and `custom_fields_remove`.
+        removing an option that is not selected change nothing. For a list field, the values
+        to append when absent or to remove. For a repeatable object, `custom_fields_add` takes
+        items to upsert by `item_id` (an existing item keeps the children the item omits) and
+        `custom_fields_remove` takes the `item_id`s to remove. Child fields of an object are
+        addressed with the same nesting as `custom_fields`, such as
+        `{"billing": {"tags": ["vip"]}}`. A field, or a parent and one of its children, may
+        appear in only one of `custom_fields`, `custom_fields_add` and `custom_fields_remove`.
     ContactListResponse:
       type: object
       required:
@@ -6571,10 +7348,20 @@ components:
         (`field`, `operator` and the operand members its operator needs). Custom field conditions
         use `field: custom_field` with `field_id`, and select options are identified by option ID.
         Negative operators never match contacts without a value; select them with `is_not_set`.
+        A child field of an object is addressed by its own field ID. A group with `item_field_id` names a
+        repeatable object and matches only when all its conditions hold on the same item; every
+        condition in it must address a child of that repeatable object. A condition on such a child
+        outside a group matches when any one item satisfies it. `count_eq`, `count_gt`, `count_lt`
+        and `count_between` compare the number of list entries or items with `number` (and the
+        upper bound for `count_between`).
       properties:
         match:
           type: string
           enum: [all, any]
+        item_field_id:
+          type: string
+          format: uuid
+          description: Makes the group a same-item group over this repeatable object field.
         children:
           type: array
           items:
@@ -6624,6 +7411,10 @@ components:
             - is_false
             - anniversary_within
             - is_stale
+            - count_eq
+            - count_gt
+            - count_lt
+            - count_between
         text:
           type: string
         values:
@@ -6729,7 +7520,7 @@ components:
           format: uuid
         kind:
           type: string
-          enum: [field_change, field_undo]
+          enum: [field_change, field_undo, contact_restore]
         status:
           $ref: '#/components/schemas/FieldJobStatus'
         source:
@@ -6778,6 +7569,203 @@ components:
           format: date-time
           nullable: true
           x-omitempty: false
+    ContactExportFormat:
+      type: string
+      enum: [spreadsheet_csv, package]
+    ContactExportCreate:
+      type: object
+      required: [format]
+      properties:
+        format:
+          $ref: '#/components/schemas/ContactExportFormat'
+        field_ids:
+          type: array
+          description: Custom fields to include, in column order.
+          items:
+            type: string
+            format: uuid
+        contact_ids:
+          type: array
+          description: Export only these contacts. Omit to export the whole audience.
+          items:
+            type: string
+            format: uuid
+    ContactExportFile:
+      type: object
+      required: [filename, bytes, expires_at]
+      properties:
+        filename:
+          type: string
+        bytes:
+          type: integer
+          format: int64
+        expires_at:
+          type: string
+          format: date-time
+    ContactExport:
+      type: object
+      required: [id, status, format, field_ids, processed, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/FieldJobStatus'
+        format:
+          $ref: '#/components/schemas/ContactExportFormat'
+        field_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        processed:
+          type: integer
+          description: Contacts written so far.
+        file:
+          allOf:
+            - $ref: '#/components/schemas/ContactExportFile'
+          nullable: true
+        error:
+          type: string
+          nullable: true
+          x-omitempty: false
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+          x-omitempty: false
+    ContactRestoreGrant:
+      type: object
+      required: [role, to]
+      properties:
+        role:
+          type: string
+          description: The role named in the package.
+        to:
+          type: string
+          description: The role in this workspace that receives the package's permissions for the field.
+    ContactRestoreField:
+      type: object
+      required: [source_id, action]
+      properties:
+        source_id:
+          type: string
+          format: uuid
+        action:
+          type: string
+          enum: [map, create, skip]
+        field_id:
+          type: string
+          format: uuid
+          description: The destination field of a `map` choice.
+        key:
+          type: string
+          description: The key of the field a `create` choice adds.
+        add_options:
+          type: boolean
+          description: Add the package's option keys a mapped select field lacks.
+        grants:
+          type: array
+          items:
+            $ref: '#/components/schemas/ContactRestoreGrant'
+    ContactRestorePlan:
+      type: object
+      required: [fields]
+      properties:
+        fields:
+          type: array
+          items:
+            $ref: '#/components/schemas/ContactRestoreField'
+    ContactRestoreConfirm:
+      type: object
+      properties:
+        accept_failed_rows:
+          type: boolean
+        activation:
+          $ref: '#/components/schemas/FieldActivation'
+    ContactRestoreConflict:
+      type: object
+      required: [source_id, key, code, constraint]
+      properties:
+        source_id:
+          type: string
+          format: uuid
+        key:
+          type: string
+        code:
+          type: string
+          description: >-
+            `unmapped`, `unknown_field`, `type_mismatch`, `key_taken`, `duplicate_destination`, `missing_options`,
+            `manage_required`, `read_only` or `unknown_grant`.
+        constraint:
+          type: string
+        options:
+          type: array
+          items:
+            type: string
+    ContactPackageField:
+      type: object
+      required: [id, key, label, type, owner_kind, options, grants]
+      properties:
+        id:
+          type: string
+          format: uuid
+        key:
+          type: string
+        label:
+          type: string
+        type:
+          $ref: '#/components/schemas/CustomFieldType'
+        owner_kind:
+          type: string
+          enum: [workspace, api_key]
+        options:
+          type: array
+          items:
+            $ref: '#/components/schemas/ContactPackageOption'
+        grants:
+          type: array
+          items:
+            $ref: '#/components/schemas/ContactPackageGrant'
+    ContactPackageOption:
+      type: object
+      required: [key, label, retired]
+      properties:
+        key: { type: string }
+        label: { type: string }
+        retired: { type: boolean }
+    ContactPackageGrant:
+      type: object
+      required: [role, permissions]
+      properties:
+        role: { type: string }
+        permissions: { $ref: '#/components/schemas/CustomFieldPermissions' }
+    ContactRestore:
+      type: object
+      required: [job, exported_at, contacts, package_fields, fields, conflicts]
+      properties:
+        job:
+          $ref: '#/components/schemas/FieldJob'
+        exported_at:
+          type: string
+          format: date-time
+        contacts:
+          type: integer
+        package_fields:
+          type: array
+          items:
+            $ref: '#/components/schemas/ContactPackageField'
+        fields:
+          type: array
+          items:
+            $ref: '#/components/schemas/ContactRestoreField'
+        conflicts:
+          type: array
+          items:
+            $ref: '#/components/schemas/ContactRestoreConflict'
     FieldJobResultState:
       type: string
       enum: [pending, applied, failed, conflicted, skipped, undone, undo_conflicted]
@@ -6942,11 +7930,50 @@ components:
         - single_select
         - multiselect
         - url
+        - scalar_list
+        - object
+        - repeatable_object
+    CustomFieldPreset:
+      type: string
+      description: A system catalog (country ISO 3166-1 alpha-2, language ISO 639-1, timezone IANA) for single_select, or phone for short_text. A phone field stores E.164 numbers.
+      enum: [country, language, timezone, phone]
+    CustomFieldConstraints:
+      type: object
+      description: Rules every value must satisfy. Bounds are inclusive and use the value format of the field type. Sent on update, it replaces the whole set; a set that rejects values the current one allowed stays pending until activated.
+      properties:
+        max_length: { type: integer, minimum: 1, description: short_text and long_text }
+        minimum: { type: string, description: 'integer, decimal, date and datetime' }
+        maximum: { type: string, description: 'integer, decimal, date and datetime' }
+        scale: { type: integer, minimum: 0, maximum: 6, description: Fractional digits allowed in a decimal }
+        min_selected: { type: integer, minimum: 1, description: multiselect }
+        max_selected: { type: integer, minimum: 1, description: multiselect }
+    CustomFieldConstraintViolation:
+      type: object
+      required: [contact_id, email, value, code, constraint]
+      properties:
+        contact_id: { type: string, format: uuid }
+        email: { type: string }
+        value:
+          description: The stored value in its canonical form; null when the API key may not read the field.
+          nullable: true
+          x-omitempty: false
+        code: { type: string }
+        constraint: { type: string }
+    CustomFieldConstraintViolationList:
+      type: object
+      required: [total, data]
+      properties:
+        total: { type: integer }
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/CustomFieldConstraintViolation' }
+        next_cursor: { type: string, format: uuid }
     CustomFieldLifecycle:
       type: string
       enum:
         - active
         - archived
+        - pending_delete
     CustomFieldOperation:
       type: string
       enum:
@@ -6957,6 +7984,7 @@ components:
         - update_option
         - retire_option
         - reorder_options
+        - add_child
     CustomFieldOption:
       type: object
       required: [id, key, label, position, retired, retired_at]
@@ -6973,17 +8001,35 @@ components:
           x-omitempty: false
     CustomField:
       type: object
-      required: [id, key, label, description, group, position, type, lifecycle, version, options, internal_only, access, permitted_operations, created_at, updated_at, archived_at]
+      required: [id, parent_id, key, path, children, kind, label, description, group, position, type, lifecycle, version, options, internal_only, constraints, access, permitted_operations, created_at, updated_at, archived_at]
       properties:
         id: { type: string, format: uuid }
+        parent_id:
+          type: string
+          format: uuid
+          nullable: true
+          x-omitempty: false
+          description: The containing object field; null for a root field.
         key:
           type: string
-          description: Immutable API key, used to address the field in contact writes.
+          description: Immutable API key, unique among its siblings, used to address the field in contact writes.
+        kind:
+          type: string
+          enum: [stored, derived]
+          description: A derived field is calculated from other fields and rejects writes with read_only.
+        path:
+          type: string
+          description: Dot-separated keys from the root field, such as billing_address.city; never reused.
         label: { type: string }
         description: { type: string }
         group: { type: string }
         position: { type: integer }
         type: { $ref: '#/components/schemas/CustomFieldType' }
+        item_type: { $ref: '#/components/schemas/CustomFieldType' }
+        children:
+          type: array
+          description: Declared child fields of an object or repeatable object, in display order; empty otherwise.
+          items: { $ref: '#/components/schemas/CustomField' }
         lifecycle: { $ref: '#/components/schemas/CustomFieldLifecycle' }
         version:
           type: integer
@@ -6996,6 +8042,9 @@ components:
         internal_only:
           type: boolean
           description: Never offered on forms and never used to personalize campaigns.
+        constraints: { $ref: '#/components/schemas/CustomFieldConstraints' }
+        pending_constraints: { $ref: '#/components/schemas/CustomFieldConstraints' }
+        preset: { $ref: '#/components/schemas/CustomFieldPreset' }
         access: { $ref: '#/components/schemas/CustomFieldPermissions' }
         permitted_operations:
           type: array
@@ -7089,11 +8138,45 @@ components:
         group: { type: string, maxLength: 60 }
         type: { $ref: '#/components/schemas/CustomFieldType' }
         internal_only: { type: boolean }
+        constraints: { $ref: '#/components/schemas/CustomFieldConstraints' }
+        preset: { $ref: '#/components/schemas/CustomFieldPreset' }
         options:
           type: array
-          description: Required for single_select and multiselect, rejected for other types.
+          description: Required for single_select and multiselect, rejected for other types and for presets, whose options come from the catalog.
           maxItems: 1000
           items: { $ref: '#/components/schemas/CustomFieldOptionCreate' }
+        item_type: { $ref: '#/components/schemas/CustomFieldType' }
+        children:
+          type: array
+          description: Required for object and repeatable_object, rejected for other types.
+          items: { $ref: '#/components/schemas/CustomFieldChildCreate' }
+    CustomFieldChildCreate:
+      type: object
+      description: A declared child field. Two container levels are allowed, with at most one repeatable object on a path; a scalar_list takes a single-value item_type. item_id is reserved.
+      required: [key, label, type]
+      properties:
+        key: { type: string, pattern: '^[a-z][a-z0-9_]{0,63}$' }
+        label: { type: string, maxLength: 100 }
+        description: { type: string, maxLength: 1000 }
+        type: { $ref: '#/components/schemas/CustomFieldType' }
+        item_type: { $ref: '#/components/schemas/CustomFieldType' }
+        constraints: { $ref: '#/components/schemas/CustomFieldConstraints' }
+        options:
+          type: array
+          maxItems: 1000
+          items: { $ref: '#/components/schemas/CustomFieldOptionCreate' }
+        children:
+          type: array
+          items: { $ref: '#/components/schemas/CustomFieldChildCreate' }
+    CustomFieldChildAdd:
+      allOf:
+        - $ref: '#/components/schemas/CustomFieldChildCreate'
+        - type: object
+          properties:
+            parent_id:
+              type: string
+              format: uuid
+              description: The container to add the child to; defaults to the root field in the path.
     CustomFieldUpdate:
       type: object
       properties:
@@ -7102,6 +8185,7 @@ components:
         group: { type: string, maxLength: 60 }
         position: { type: integer, minimum: 0 }
         internal_only: { type: boolean }
+        constraints: { $ref: '#/components/schemas/CustomFieldConstraints' }
     CustomFieldOptionUpdate:
       type: object
       required: [label]
