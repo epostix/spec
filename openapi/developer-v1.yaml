@@ -3772,6 +3772,29 @@ paths:
               schema: { $ref: '#/components/schemas/APIError' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '500': { $ref: '#/components/responses/InternalError' }
+  /integration-context:
+    get:
+      tags: [API keys]
+      summary: Get the integration context
+      description: >
+        Describe the key making the request: its workspace, environment, granted
+        scopes and which connector capabilities those scopes cover. Any valid key
+        may call it, whatever its scopes. It reads only and never sends mail.
+        A capability the key lacks is reported in `capabilities`, not as an error.
+      operationId: getIntegrationContext
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The authenticated key's context
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationContext'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
   /api-keys:
     get:
       tags: [API keys]
@@ -8238,6 +8261,89 @@ components:
         so `sending:domain:acme.com` restricts sending to acme.com only. Multiple
         domain-scoped permissions can be combined. See `PermissionScope` for the base
         vocabulary.
+    ConnectorCapability:
+      type: string
+      enum:
+        - contacts_read
+        - contacts_manage
+        - custom_fields_read
+        - sending
+        - email_status
+        - email_triggers
+        - contact_triggers
+      description: >
+        A group of scopes an integration needs for one kind of operation.
+    ConnectorCapabilityGrant:
+      type: object
+      required:
+        - capability
+        - granted
+        - missing_scopes
+        - domains
+      properties:
+        capability:
+          $ref: '#/components/schemas/ConnectorCapability'
+        granted:
+          type: boolean
+          description: Whether the key holds every scope the capability needs.
+        missing_scopes:
+          type: array
+          items:
+            $ref: '#/components/schemas/PermissionScope'
+          description: The scopes the key lacks for this capability. Empty when granted.
+        domains:
+          type: array
+          nullable: true
+          x-omitempty: false
+          items:
+            type: string
+          description: >
+            The domains the capability is limited to. Null when it covers every
+            domain or is not granted.
+    IntegrationContext:
+      type: object
+      required:
+        - workspace
+        - api_key
+        - scopes
+        - domain_restrictions
+        - capabilities
+      properties:
+        workspace:
+          type: object
+          required: [id, name]
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+        api_key:
+          type: object
+          required: [id, name, environment]
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+            environment:
+              type: string
+              enum: [live, test]
+        scopes:
+          type: array
+          items:
+            $ref: '#/components/schemas/PermissionGrant'
+          description: The permission grants of the key, as stored.
+        domain_restrictions:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+          description: Each scope that is limited to specific domains, with those domains.
+        capabilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConnectorCapabilityGrant'
     APIKeyResponse:
       type: object
       required:
