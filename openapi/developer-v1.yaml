@@ -575,6 +575,16 @@ paths:
       operationId: resendEmail
       security:
         - bearerAuth: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+          description: |
+            Caller-supplied key for this resend, kept for 24 hours. Each new key creates one new email from the original, in the original's live or test environment. Retrying with the same key returns the email that the first attempt created, with `Idempotent-Replayed: true`, and never sends it again.
       responses:
         '201':
           description: Email resent successfully
@@ -6083,7 +6093,6 @@ components:
       required:
         - from
         - to
-        - subject
       properties:
         from:
           $ref: '#/components/schemas/MailboxAddress'
@@ -6097,6 +6106,7 @@ components:
           description: Recipient email address(es).
         subject:
           type: string
+          description: Required unless template_id is set. With template_id, omit it to render the template version's subject; a supplied subject is sent as literal text.
         cc:
           oneOf:
             - type: string
@@ -6409,7 +6419,7 @@ components:
         data:
           type: object
           additionalProperties: { type: string }
-      description: Supply either template_id, or an inline subject, html and text. Not both.
+      description: Supply either template_id, or an inline subject, html and text. With template_id, a subject replaces the version's subject as literal text and its variables are not reported.
     TemplateRenderResult:
       type: object
       properties:
@@ -9131,8 +9141,12 @@ components:
 
     ContactStatusChangedEventData:
       type: object
-      description: The data of contact.status_changed events.
-      required: [contact_id, email, status, previous_status, reason, source, changed_at]
+      description: >
+        The data of contact.status_changed events. Delivery is at least once and unordered:
+        deduplicate on the event id and ignore an event whose sequence is not newer than one
+        already applied for the contact. Sequences increase per contact but can skip numbers,
+        because changes made by data-only imports and restores are not published.
+      required: [contact_id, email, status, previous_status, reason, source, sequence, changed_at]
       properties:
         contact_id:
           type: string
@@ -9153,6 +9167,10 @@ components:
           nullable: true
           allOf:
             - $ref: '#/components/schemas/ConsentSource'
+        sequence:
+          type: integer
+          format: int64
+          description: Position of this change among the contact's status changes.
         changed_at:
           type: string
           format: date-time
