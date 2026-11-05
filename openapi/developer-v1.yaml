@@ -1499,8 +1499,8 @@ paths:
         Export contacts asynchronously. `spreadsheet_csv` writes the standard columns plus the selected custom
         fields under their labels and escapes formula-triggering cells with a leading apostrophe. `package` writes a
         zip with `contacts.jsonl` and `manifest.json` that keeps option keys, types, empty versus missing values and
-        exact decimals, and can be restored with `POST /contacts/restores`. The API key needs the export grant on
-        every selected field. The file can be downloaded for 7 days while the key keeps that access.
+        exact decimals, and can be restored with `POST /contacts/restores`. The API key needs the `contacts:export`
+        scope and the export grant on every selected field. The file can be downloaded for 7 days while the key keeps that access.
       operationId: createContactExport
       security:
         - bearerAuth: []
@@ -8240,6 +8240,7 @@ components:
         - 'domains:manage'
         - 'contacts:read'
         - 'contacts:manage'
+        - 'contacts:export'
         - 'custom-fields:read'
         - 'custom-fields:manage'
         - 'webhooks:read'
