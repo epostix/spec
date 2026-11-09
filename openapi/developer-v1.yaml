@@ -3805,6 +3805,89 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '500': { $ref: '#/components/responses/InternalError' }
+  /integrations/zapier/events:
+    get:
+      tags: [Events]
+      summary: List Zapier trigger samples
+      description: >
+        The recorded events a Zapier trigger of this type would receive, newest first, for
+        loading samples in the Zap editor. Only live marketing mail and committed contact status
+        transitions are recorded; transactional and simulated mail never appear. Records are kept
+        for 30 days and begin when the projection was introduced. An empty list means no matching
+        event was recorded. Contact events need `contacts:read`; email events need `emails:read`
+        and stay inside the key's domains. Test keys are refused.
+      operationId: listZapierEvents
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum:
+              - contact_status_changed
+              - email_delivered
+              - email_failed
+              - email_complained
+              - email_opened
+              - email_clicked
+          description: The trigger the samples are for.
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [subscribed, unsubscribed, cleaned, bounced]
+          description: Only transitions into this status. contact_status_changed only.
+        - name: include_initial_status
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Also return the first status a contact was given, which has no previous status. contact_status_changed only.
+        - name: include_machine
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Also return opens or clicks classified as automated. email_opened and email_clicked only.
+        - name: domain_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Only mail sent from this domain. Email triggers only.
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 10
+            minimum: 1
+            maximum: 100
+          description: Number of items to return (1-100, default 10).
+        - name: starting_after
+          in: query
+          required: false
+          schema:
+            type: string
+          description: The next_cursor of the previous page.
+      responses:
+        '200':
+          description: The matching recorded events
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ZapierEventListResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
   /api-keys:
     get:
       tags: [API keys]
@@ -4145,6 +4228,272 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
+  /integrations/zapier/sends:
+    post:
+      tags: [Emails]
+      summary: Accept one marketing email for Zapier
+      description: >
+        Accept one marketing message to one recipient. Send exactly one of `template` or `inline`.
+        `message_key` names this message for good: the same key with the same request returns the
+        original send with `replayed` true however long ago it was accepted, and a key that was
+        used with a different request is a conflict. Rotating or replacing the API key does not
+        change this. A deliberate second message needs a new key. Accepted means Epostix owns the
+        message, not that it was delivered; withdrawals, suppressions and exclusions are enforced
+        when it is sent, so read the outcome from the status route. No contact is created or
+        changed. Test keys are refused.
+      operationId: createZapierSend
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ZapierSendCreate' }
+      responses:
+        '200':
+          description: This key and request were already accepted; this is the original send, and nothing new was sent
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ZapierSendAccepted' }
+        '201':
+          description: The message was accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ZapierSendAccepted' }
+        '400': { description: The body is not valid JSON, content: { application/json: { schema: { $ref: '#/components/schemas/APIError' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '402': { description: The workspace cannot send or its monthly quota is used up, content: { application/json: { schema: { $ref: '#/components/schemas/APIError' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: The sender's domain or the template does not exist, content: { application/json: { schema: { $ref: '#/components/schemas/APIError' } } } }
+        '409':
+          description: >
+            The key was used with a different request (`idempotency_conflict`), or this request was
+            accepted earlier and its result is no longer available (`previously_accepted_result_expired`).
+            In both cases no new message was sent, and retrying cannot change the outcome.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /integrations/zapier/sends/{send_id}:
+    get:
+      tags: [Emails]
+      summary: Read a marketing send's status for Zapier
+      description: >
+        Read the current status and each recipient's outcome. Cancellation is its own outcome, not
+        a failure. No address or message content is returned. Transactional sends are refused
+        (`transactional_send_refused`). Test keys are refused.
+      operationId: getZapierSend
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: send_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: The send's status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ZapierSendStatus' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /integrations/zapier/contacts:
+    post:
+      tags: [Contacts]
+      summary: Create or update a contact for Zapier
+      description: >
+        Update the contact at this address, matched case-insensitively, or create it when
+        `allow_create_with_consent` is true and `consent_source` names where the customer
+        obtained consent. The source is stored as the customer's assertion with the time it was
+        observed and the API key that made it; it is not double opt-in and sets no historical
+        consent time. An update never changes the contact's status, and no input here can
+        subscribe an address that withdrew, bounced or was cleaned. Every tag and field is checked
+        before anything is written, so a failure changes nothing. Repeating a request with the
+        same values writes nothing. Test keys are refused.
+      operationId: upsertZapierContact
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: If-Match
+          in: header
+          required: false
+          description: The ETag of the contact's custom field version this change is based on. Needed to replace a whole repeatable field. When it is stale, nothing is written and the request returns 412.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ZapierContactUpsert' }
+      responses:
+        '200':
+          description: The contact was created or updated, or already held these values
+          headers:
+            ETag:
+              description: The contact's custom field version, to send back in If-Match
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ZapierContactResult' }
+        '400': { description: The body is not valid JSON or names a tag that does not exist, content: { application/json: { schema: { $ref: '#/components/schemas/APIError' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: No contact has this address and creating one was not allowed (`contact_not_found`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
+        '409':
+          description: The address belongs to an archived contact (`contact_archived`) or an erased one (`contact_erased`). Neither is restored or replaced here.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
+        '412':
+          description: If-Match does not match the contact's custom field version (`precondition_failed`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /integrations/zapier/contacts/search:
+    post:
+      tags: [Contacts]
+      summary: Find one contact for Zapier
+      description: >
+        Find a live contact by exact address or by ID, never both. An empty list means no live
+        contact matches; archived and erased contacts are never returned. It creates nothing.
+        Test keys are refused.
+      operationId: searchZapierContacts
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ZapierContactLookup' }
+      responses:
+        '200':
+          description: The matching contact, or an empty list
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ZapierContactSearchResult' }
+        '400': { description: The body is not valid JSON or names a tag that does not exist, content: { application/json: { schema: { $ref: '#/components/schemas/APIError' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /integrations/zapier/contacts/unsubscribe:
+    post:
+      tags: [Contacts]
+      summary: Unsubscribe a contact or address for Zapier
+      description: >
+        Record that this contact or address may no longer receive marketing mail. An address with
+        no contact is withdrawn without creating one, and a contact created for it later starts
+        unsubscribed. Repeating it returns `already_unsubscribed` and emits nothing. There is no
+        resubscribe here; a workspace member can reverse this from the dashboard. Test keys are
+        refused.
+      operationId: unsubscribeZapierContact
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ZapierContactLookup' }
+      responses:
+        '200':
+          description: The address is withdrawn
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ZapierContactUnsubscribed' }
+        '400': { description: The body is not valid JSON or names a tag that does not exist, content: { application/json: { schema: { $ref: '#/components/schemas/APIError' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /integrations/zapier/contacts/{contact_id}/tags/add:
+    post:
+      tags: [Contacts]
+      summary: Add tags to a contact for Zapier
+      description: Add existing tags to a live contact, keeping its other tags. It never creates a contact or a tag, and an unknown tag fails the whole request. Repeating it changes nothing. Test keys are refused.
+      operationId: addZapierContactTags
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: contact_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ZapierContactTags' }
+      responses:
+        '200':
+          description: The tags are on the contact; `added` lists those that were not already
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ZapierContactTagsAdded' }
+        '400': { description: The body is not valid JSON or names a tag that does not exist, content: { application/json: { schema: { $ref: '#/components/schemas/APIError' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /integrations/zapier/contacts/{contact_id}/tags/remove:
+    post:
+      tags: [Contacts]
+      summary: Remove tags from a contact for Zapier
+      description: Remove existing tags from a live contact, keeping its other tags. It never creates a contact or a tag, and an unknown tag fails the whole request. Repeating it changes nothing. Test keys are refused.
+      operationId: removeZapierContactTags
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: contact_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ZapierContactTags' }
+      responses:
+        '200':
+          description: The tags are off the contact; `removed` lists those that were on it
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ZapierContactTagsRemoved' }
+        '400': { description: The body is not valid JSON or names a tag that does not exist, content: { application/json: { schema: { $ref: '#/components/schemas/APIError' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /integrations/zapier/fields:
+    get:
+      tags: [Custom fields]
+      summary: List the fields this key can write
+      description: Active custom fields this API key has a write grant on and is allowed to write under the field's ownership, for mapping in the Zap editor. Derived fields are never listed. Identify a field by its `id` or `key`, never its label. Test keys are refused.
+      operationId: listZapierWritableFields
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The writable fields
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ZapierWritableFieldList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
   /webhooks:
     post:
       tags: [Webhooks]
@@ -6072,6 +6421,118 @@ components:
 
             email.bounced and email.failed can arrive after email.delivered: a receiving server
             may accept a message and report later that it could not be delivered.
+    ZapierEventListResponse:
+      type: object
+      required:
+        - data
+        - has_more
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ZapierEvent'
+        has_more:
+          type: boolean
+          description: Whether there are more items available after this page.
+        next_cursor:
+          type: string
+          description: Cursor to use as starting_after for the next page.
+    ZapierEvent:
+      type: object
+      description: >
+        One recorded event. `id` and `event_id` are the same stable identifier on every
+        delivery of the event, so a destination can drop duplicates by it.
+      required:
+        - id
+        - event_id
+        - type
+        - occurred_at
+        - workspace_id
+      properties:
+        id:
+          type: string
+        event_id:
+          type: string
+        type:
+          type: string
+          enum:
+            - contact_status_changed
+            - email_delivered
+            - email_failed
+            - email_complained
+            - email_opened
+            - email_clicked
+        occurred_at:
+          type: string
+          format: date-time
+        workspace_id:
+          type: string
+        contact_id:
+          type: string
+          description: contact_status_changed only.
+        contact_email:
+          type: string
+          description: contact_status_changed only.
+        status:
+          type: string
+          enum: [subscribed, unsubscribed, cleaned, bounced]
+          description: The status the contact moved to. contact_status_changed only.
+        previous_status:
+          type: string
+          nullable: true
+          x-omitempty: false
+          enum: [subscribed, unsubscribed, cleaned, bounced]
+          description: Null for the first status a contact was given. contact_status_changed only.
+        sequence:
+          type: integer
+          format: int64
+          description: >
+            Increases with each transition of the same contact and can skip numbers. Events can
+            arrive out of order; ignore one whose sequence is not above the last one applied.
+            contact_status_changed only.
+        source:
+          type: string
+          nullable: true
+          x-omitempty: false
+          description: What made the change. contact_status_changed only.
+        reason:
+          type: string
+          nullable: true
+          x-omitempty: false
+          description: contact_status_changed only.
+        send_id:
+          type: string
+          description: The id that the send request returned. Email triggers only.
+        email_id:
+          type: string
+          description: The recipient's email within the send. Email triggers only.
+        recipient_email:
+          type: string
+          description: Email triggers only.
+        domain_id:
+          type: string
+          description: The sending domain. Email triggers only.
+        failure:
+          $ref: '#/components/schemas/EmailFailure'
+        url:
+          type: string
+          nullable: true
+          x-omitempty: false
+          description: The link that was clicked. email_clicked only.
+        machine:
+          type: boolean
+          description: >
+            True when the open or click was classified as automated. False does not prove a
+            person: the event may be unclassified. email_opened and email_clicked only.
+        engagement_source:
+          type: string
+          nullable: true
+          x-omitempty: false
+          description: How the open or click was classified, or null when it was not. email_opened and email_clicked only.
+        metadata:
+          type: object
+          additionalProperties: true
+          description: The metadata the send carried. Email triggers only.
     EventListResponse:
       type: object
       required:
@@ -6679,6 +7140,9 @@ components:
             - invalid_from_address
             - duplicate_detected
             - contact_erased
+            - contact_archived
+            - contact_not_found
+            - consent_required
             - invalid_schedule
             - email_not_cancellable
             - batch_too_large
@@ -6693,6 +7157,8 @@ components:
             - monthly_quota_exceeded
             - idempotency_conflict
             - idempotency_in_progress
+            - previously_accepted_result_expired
+            - transactional_send_refused
             - api_key_in_use
             - webhook_limit_reached
             - webhook_url_not_allowed
@@ -7125,6 +7591,273 @@ components:
           $ref: '#/components/schemas/CustomFieldMembership'
         custom_field_sources:
           $ref: '#/components/schemas/CustomFieldSourceWrites'
+    ZapierSendMailbox:
+      type: object
+      additionalProperties: false
+      required: [address]
+      properties:
+        address: { type: string }
+        name: { type: string }
+    ZapierSendTemplate:
+      type: object
+      additionalProperties: false
+      required: [template_id]
+      description: Send exactly one of `version` or `version_selection`.
+      properties:
+        template_id: { type: string }
+        version:
+          type: integer
+          minimum: 1
+          description: The immutable template version to send.
+        version_selection:
+          type: string
+          enum: [published_at_first_execution]
+          description: Use the version published when this message key is first accepted. A retry keeps that version.
+        subject:
+          type: string
+          description: Literal subject text. Omitted or blank means the version's subject, rendered.
+        variables:
+          type: object
+          additionalProperties: { type: string }
+          description: Values for the version's variables. A required variable that is missing is refused.
+    ZapierSendInline:
+      type: object
+      additionalProperties: false
+      required: [subject]
+      description: Final content, sent as written. Send at least one of `html` or `text`. Template-looking syntax stays literal.
+      properties:
+        subject: { type: string }
+        html: { type: string }
+        text: { type: string }
+    ZapierSendCreate:
+      type: object
+      additionalProperties: false
+      required: [to, from, message_key, marketing_consent_asserted]
+      properties:
+        to:
+          type: string
+          description: The one recipient.
+        from: { $ref: '#/components/schemas/ZapierSendMailbox' }
+        reply_to: { $ref: '#/components/schemas/ZapierSendMailbox' }
+        message_key:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: A stable identifier for this one message, such as a source event ID plus the step it belongs to.
+        marketing_consent_asserted:
+          type: boolean
+          description: Must be true. The customer's assertion that this recipient may receive this marketing message. It never overrides a withdrawal, suppression or exclusion.
+        template: { $ref: '#/components/schemas/ZapierSendTemplate' }
+        inline: { $ref: '#/components/schemas/ZapierSendInline' }
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Customer metadata, up to the existing size limit and never truncated. `epostix_connector` and `fasttrack` are reserved.
+    ZapierSendAccepted:
+      type: object
+      required: [send_id, accepted_at, status, replayed, template_version]
+      properties:
+        send_id: { type: string, format: uuid }
+        accepted_at: { type: string, format: date-time }
+        status:
+          type: string
+          description: The current status. `accepted` means Epostix owns the message, not that it was delivered.
+        replayed:
+          type: boolean
+          description: True when this key and request were accepted earlier and nothing new was sent.
+        template_version:
+          type: integer
+          nullable: true
+          x-omitempty: false
+          description: The template version the message was built from. Null for inline content.
+    ZapierSendRecipientOutcome:
+      type: object
+      required: [email_id, status, failure, cancellation, created_at, updated_at, settled_at]
+      properties:
+        email_id: { type: string, format: uuid }
+        status: { type: string }
+        failure:
+          allOf: [{ $ref: '#/components/schemas/EmailFailure' }]
+          nullable: true
+          x-omitempty: false
+        cancellation:
+          type: object
+          nullable: true
+          x-omitempty: false
+          required: [reason]
+          description: Present when the message was cancelled. `reason` is null when no public reason applies.
+          properties:
+            reason:
+              type: string
+              nullable: true
+              x-omitempty: false
+              enum: [cancelled_by_request, recipient_suppressed, recipient_complained, recipient_unsubscribed, recipient_cleaned]
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        settled_at:
+          type: string
+          format: date-time
+          nullable: true
+          x-omitempty: false
+          description: When the message reached a final status. Null while it is still in progress.
+    ZapierSendStatus:
+      type: object
+      required: [send_id, status, accepted_at, recipients]
+      properties:
+        send_id: { type: string, format: uuid }
+        status:
+          type: string
+          description: The current status. `accepted` means Epostix owns the message, not that it was delivered.
+        accepted_at: { type: string, format: date-time }
+        recipients:
+          type: array
+          items: { $ref: '#/components/schemas/ZapierSendRecipientOutcome' }
+    ZapierContactUpsert:
+      type: object
+      additionalProperties: false
+      required: [email]
+      properties:
+        email:
+          type: string
+          description: The contact's address, matched case-insensitively.
+        name:
+          type: string
+          description: The contact's name. Omitting it keeps the stored name. It cannot be blank; use `clear_name` to clear it.
+        clear_name:
+          type: boolean
+          default: false
+          description: Clear the stored name. Cannot be combined with `name`.
+        allow_create_with_consent:
+          type: boolean
+          default: false
+          description: Create the contact if the address has none. Needs `consent_source`.
+        consent_source:
+          type: string
+          maxLength: 255
+          description: Where the customer obtained consent, such as a form or CRM reference. Stored as the customer's assertion.
+        tag_ids:
+          type: array
+          maxItems: 100
+          items: { type: string, format: uuid }
+          description: Existing tags to add, keeping the contact's other tags.
+        custom_fields:
+          $ref: '#/components/schemas/CustomFieldValues'
+        custom_fields_add:
+          type: object
+          additionalProperties: true
+          description: Options to add to multiselect fields and items to upsert in repeatable fields, keyed by field key.
+        custom_fields_remove:
+          type: object
+          additionalProperties: true
+          description: Options to remove from multiselect fields and items to remove from repeatable fields, keyed by field key.
+        clear_custom_fields:
+          type: array
+          items: { type: string }
+          description: Keys of fields to clear. A key cannot also appear in `custom_fields`, `custom_fields_add` or `custom_fields_remove`.
+    ZapierContactChanges:
+      type: object
+      required: [name, custom_fields, tags_added]
+      properties:
+        name:
+          type: boolean
+          description: Whether the stored name changed.
+        custom_fields:
+          type: array
+          items: { type: string }
+          description: Keys of the fields whose stored value changed.
+        tags_added:
+          type: array
+          items: { type: string }
+          description: Tags the contact did not already have.
+    ZapierContactResult:
+      type: object
+      required: [id, email, status, outcome, changed, custom_fields]
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        status:
+          type: string
+          enum: [subscribed, unsubscribed, bounced, cleaned]
+        outcome:
+          type: string
+          enum: [created, updated]
+          description: Whether this request created the contact. An `updated` outcome with nothing in `changed` means it already held these values.
+        changed:
+          $ref: '#/components/schemas/ZapierContactChanges'
+        custom_fields:
+          $ref: '#/components/schemas/CustomFieldValues'
+    ZapierContactLookup:
+      type: object
+      additionalProperties: false
+      description: Exactly one of `email` or `contact_id`.
+      properties:
+        email:
+          type: string
+        contact_id:
+          type: string
+    ZapierContactSearchResult:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          maxItems: 1
+          items: { $ref: '#/components/schemas/Contact' }
+    ZapierContactUnsubscribed:
+      type: object
+      required: [outcome, contact_id, status]
+      properties:
+        outcome:
+          type: string
+          enum: [unsubscribed, already_unsubscribed]
+        contact_id:
+          type: string
+          nullable: true
+          x-omitempty: false
+          description: The live contact at this address, or null when it has none.
+        status:
+          type: string
+          nullable: true
+          x-omitempty: false
+          enum: [subscribed, unsubscribed, bounced, cleaned]
+          description: The live contact's status, or null when it has none.
+    ZapierContactTags:
+      type: object
+      additionalProperties: false
+      required: [tag_ids]
+      properties:
+        tag_ids:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: { type: string, format: uuid }
+    ZapierContactTagsAdded:
+      type: object
+      required: [contact_id, added]
+      properties:
+        contact_id:
+          type: string
+        added:
+          type: array
+          items: { type: string }
+    ZapierContactTagsRemoved:
+      type: object
+      required: [contact_id, removed]
+      properties:
+        contact_id:
+          type: string
+        removed:
+          type: array
+          items: { type: string }
+    ZapierWritableFieldList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/CustomField' }
     ContactUpsert:
       type: object
       properties:
