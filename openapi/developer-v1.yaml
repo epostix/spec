@@ -39,6 +39,8 @@ tags:
     description: Addresses that will not be sent to, and why.
   - name: Webhooks
     description: Endpoints that receive events as they happen.
+  - name: Business events
+    description: Typed events from your own systems, such as deposits or bets, that segments can count and order.
   - name: API keys
     description: Credentials, their scopes, and what has been done with them.
 paths:
@@ -3015,7 +3017,9 @@ paths:
     delete:
       tags: [Tags]
       summary: Delete a tag
-      description: Delete a tag. All contact-tag assignments for this tag will be removed.
+      description: >-
+        Archive a tag. It stops taking new assignments and disappears from the tag list, while the contacts that carry it keep it.
+        Refused with 409 (`dependency_conflict`) while a live segment, campaign, auto-tagging rule or running job uses the tag.
       operationId: deleteTag
       security:
         - bearerAuth: []
@@ -3028,7 +3032,7 @@ paths:
           description: Tag ID.
       responses:
         '204':
-          description: Tag deleted
+          description: Tag archived
         '401':
           description: Unauthorized
           content:
@@ -3037,6 +3041,12 @@ paths:
                 $ref: '#/components/schemas/APIError'
         '404':
           description: Tag not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+        '409':
+          description: The tag is in use or is being merged
           content:
             application/json:
               schema:
@@ -5978,6 +5988,552 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalError' }
+  /contact-event-schemas:
+    get:
+      tags: [Business events]
+      summary: List business event schemas
+      description: The workspace's event schemas this key may use, ordered by key.
+      operationId: listContactEventSchemas
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: false
+          description: Matches part of a key or label, ignoring case.
+          schema: { type: string, maxLength: 128 }
+        - name: include_archived
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, default: 50, minimum: 1, maximum: 200 }
+        - name: starting_after
+          in: query
+          required: false
+          description: The key of the last schema on the previous page.
+          schema: { type: string }
+      responses:
+        '200':
+          description: A page of schemas
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContactEventSchemaListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [Business events]
+      summary: Create a business event schema
+      description: >
+        Declare an event and its typed properties. The key is immutable. Tracking starts only when the schema is
+        activated; events are never accepted for a key that has no schema.
+      operationId: createContactEventSchema
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ContactEventSchemaCreate' }
+      responses:
+        '201':
+          description: Schema created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContactEventSchema' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /contact-event-schemas/{schema_id}:
+    parameters:
+      - name: schema_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Business events]
+      summary: Get a business event schema
+      operationId: getContactEventSchema
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The schema and its current revision
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContactEventSchema' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    put:
+      tags: [Business events]
+      summary: Revise a business event schema
+      description: >
+        Create the next immutable revision. A revision may add optional properties and change labels; changing a
+        property's type, unit or requirement, or removing a property, needs a new property or schema instead.
+      operationId: reviseContactEventSchema
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ContactEventSchemaRevise' }
+      responses:
+        '200':
+          description: Revision created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContactEventSchema' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412':
+          description: expected_revision is not the current revision (`precondition_failed`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    delete:
+      tags: [Business events]
+      summary: Delete an archived business event schema
+      description: Allowed only once the schema is archived and no retained event occurrences remain.
+      operationId: deleteContactEventSchema
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Schema deleted
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /contact-event-schemas/{schema_id}/revisions:
+    get:
+      tags: [Business events]
+      summary: List business event schema revisions
+      operationId: listContactEventSchemaRevisions
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: schema_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Every revision, newest first
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContactEventSchemaRevisionList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /contact-event-schemas/{schema_id}/archive:
+    post:
+      tags: [Business events]
+      summary: Archive a business event schema
+      description: >
+        Stop new ingestion and new rule references, and close tracking coverage at this instant. Every producer must
+        be unbound from the schema first. Existing rules can still read the covered history.
+      operationId: archiveContactEventSchema
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: schema_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Schema archived
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContactEventSchema' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /contact-event-schemas/{schema_id}/restore:
+    post:
+      tags: [Business events]
+      summary: Restore an archived business event schema
+      description: Reopen tracking from this instant. The archived interval stays a gap in coverage.
+      operationId: restoreContactEventSchema
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: schema_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Schema restored
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContactEventSchema' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /contact-event-schemas/{schema_id}/activation:
+    post:
+      tags: [Business events]
+      summary: Activate business event tracking
+      description: >
+        Start recorded coverage at this instant for the key's environment. Coverage is never inferred from the
+        earliest event; history before activation needs an attested backfill completion.
+      operationId: activateContactEventSchema
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: schema_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Tracking active
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContactEventCoverage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /contact-event-schemas/{schema_id}/coverage:
+    parameters:
+      - name: schema_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Business events]
+      summary: Get business event coverage
+      description: The recorded coverage of the key's environment, with every activation, archive, gap and backfill record.
+      operationId: getContactEventCoverage
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Coverage
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContactEventCoverage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [Business events]
+      summary: Declare a gap or a completed backfill
+      description: >
+        A gap removes an interval from coverage. A backfill is the producer's attestation that every event in the
+        interval has been sent and accepted; send it only after the last backfilled event is acknowledged.
+      operationId: declareContactEventCoverage
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ContactEventCoverageDeclaration' }
+      responses:
+        '201':
+          description: Declaration recorded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContactEventCoverage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /contact-event-schemas/{schema_id}/grants:
+    parameters:
+      - name: schema_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Business events]
+      summary: List business event schema grants
+      operationId: listContactEventSchemaGrants
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The schema's grants
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContactEventSchemaGrants' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    put:
+      tags: [Business events]
+      summary: Replace business event schema grants
+      operationId: replaceContactEventSchemaGrants
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ContactEventSchemaGrants' }
+      responses:
+        '200':
+          description: Grants replaced
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContactEventSchemaGrants' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /contact-event-producers:
+    get:
+      tags: [Business events]
+      summary: List business event producers
+      operationId: listContactEventProducers
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Every producer
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContactEventProducerList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [Business events]
+      summary: Create a business event producer
+      description: >
+        A producer is the system that sends events. Each bound API key identifies it, and it may send only the
+        schemas it lists. Event ids are unique per producer and environment.
+      operationId: createContactEventProducer
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ContactEventProducerCreate' }
+      responses:
+        '201':
+          description: Producer created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContactEventProducer' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /contact-event-producers/{producer_id}:
+    parameters:
+      - name: producer_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Business events]
+      summary: Get a business event producer
+      operationId: getContactEventProducer
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The producer
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContactEventProducer' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    put:
+      tags: [Business events]
+      summary: Update a business event producer
+      description: Replace the label, the allowed schemas and the bound API keys. The key is immutable.
+      operationId: updateContactEventProducer
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ContactEventProducerUpdate' }
+      responses:
+        '200':
+          description: Producer updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContactEventProducer' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /contact-events:
+    post:
+      tags: [Business events]
+      summary: Record business events
+      description: >
+        Record up to 100 events for existing contacts as the producer bound to this key. Each event is validated and
+        committed on its own and reported as accepted, duplicate or rejected; the batch receipt stays readable for
+        30 days. Resending an accepted event id with the same payload returns its receipt, and with a different
+        payload is rejected. Events never create contacts or change subscriptions. The key's environment decides
+        whether events are live or test data.
+      operationId: recordContactEvents
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ContactEventBatchRequest' }
+      responses:
+        '200':
+          description: Batch receipt
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContactEventBatch' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413':
+          description: The request is larger than the API accepts (`payload_too_large`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /contact-events/batches/{batch_id}:
+    get:
+      tags: [Business events]
+      summary: Get a business event batch receipt
+      operationId: getContactEventBatch
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: batch_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Batch receipt
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContactEventBatch' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /contact-events/corrections:
+    post:
+      tags: [Business events]
+      summary: Correct a business event
+      description: >
+        Replace an accepted event's occurrence time and properties with a new revision. expected_revision must be the
+        event's current revision. Resending the original event afterwards returns its receipt and the current
+        revision, never overwriting the correction.
+      operationId: correctContactEvent
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ContactEventCorrection' }
+      responses:
+        '200':
+          description: Correction recorded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContactEventReceipt' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412':
+          description: expected_revision is not the event's current revision (`precondition_failed`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /contact-events/retractions:
+    post:
+      tags: [Business events]
+      summary: Retract a business event
+      description: Stop an accepted event from counting. The event id stays used and cannot be accepted again.
+      operationId: retractContactEvent
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ContactEventRetraction' }
+      responses:
+        '200':
+          description: Retraction recorded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContactEventReceipt' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412':
+          description: expected_revision is not the event's current revision (`precondition_failed`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIError' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
 components:
   responses:
     Unauthorized:
@@ -6059,6 +6615,332 @@ components:
       scheme: bearer
       description: 'API key with tix_live_ or tix_test_ prefix. Legacy tix_ prefix also accepted.'
   schemas:
+    ContactEventPropertyType:
+      type: string
+      enum: [short_text, long_text, integer, decimal, boolean, date, datetime, url, scalar_list, object, repeatable_object]
+    ContactEventPropertyDefinition:
+      type: object
+      required: [key, type]
+      properties:
+        key: { type: string, pattern: '^[a-z][a-z0-9_]{0,63}$' }
+        label: { type: string, maxLength: 128 }
+        type: { $ref: '#/components/schemas/ContactEventPropertyType' }
+        item_type:
+          type: string
+          description: The scalar type of a scalar_list's items.
+        required: { type: boolean, default: false }
+        unit:
+          type: string
+          maxLength: 16
+          description: The fixed unit or currency of an integer or decimal property.
+        unit_property:
+          type: string
+          description: The key of a text property that carries each event's unit or currency. Rules that add these values up must filter on one unit.
+        children:
+          type: array
+          maxItems: 50
+          description: The properties of an object or repeatable_object.
+          items: { $ref: '#/components/schemas/ContactEventPropertyDefinition' }
+    ContactEventProperty:
+      type: object
+      required: [id, key, label, type, required]
+      properties:
+        id: { type: string, format: uuid }
+        key: { type: string }
+        label: { type: string }
+        type: { $ref: '#/components/schemas/ContactEventPropertyType' }
+        item_type: { type: string }
+        required: { type: boolean }
+        unit: { type: string }
+        unit_property: { type: string }
+        children:
+          type: array
+          items: { $ref: '#/components/schemas/ContactEventProperty' }
+    ContactEventSchemaCreate:
+      type: object
+      required: [key, label]
+      properties:
+        key: { type: string, pattern: '^[a-z][a-z0-9_]{0,63}$' }
+        label: { type: string, minLength: 1, maxLength: 128 }
+        description: { type: string, maxLength: 1000 }
+        properties:
+          type: array
+          maxItems: 50
+          items: { $ref: '#/components/schemas/ContactEventPropertyDefinition' }
+    ContactEventSchemaRevise:
+      type: object
+      required: [expected_revision, label]
+      properties:
+        expected_revision: { type: integer, minimum: 1 }
+        label: { type: string, minLength: 1, maxLength: 128 }
+        description: { type: string, maxLength: 1000 }
+        properties:
+          type: array
+          maxItems: 50
+          description: The full property list of the new revision. Existing properties are matched by key.
+          items: { $ref: '#/components/schemas/ContactEventPropertyDefinition' }
+    ContactEventSchema:
+      type: object
+      required: [id, key, label, description, state, revision, properties, last_received_at, archived_at, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        key: { type: string }
+        label: { type: string }
+        description: { type: string }
+        state: { type: string, enum: [active, archived] }
+        revision: { type: integer }
+        properties:
+          type: array
+          items: { $ref: '#/components/schemas/ContactEventProperty' }
+        last_received_at: { type: string, format: date-time, nullable: true, x-omitempty: false }
+        archived_at: { type: string, format: date-time, nullable: true, x-omitempty: false }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    ContactEventSchemaListResponse:
+      type: object
+      required: [data, has_more]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/ContactEventSchema' }
+        has_more: { type: boolean }
+        next_cursor: { type: string }
+    ContactEventSchemaRevision:
+      type: object
+      required: [revision, properties, created_at]
+      properties:
+        revision: { type: integer }
+        properties:
+          type: array
+          items: { $ref: '#/components/schemas/ContactEventProperty' }
+        created_at: { type: string, format: date-time }
+    ContactEventSchemaRevisionList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/ContactEventSchemaRevision' }
+    ContactEventCoverageRecord:
+      type: object
+      required: [kind, starts_at, ends_at, reason, created_at]
+      properties:
+        kind: { type: string, enum: [activation, deactivation, gap, backfill] }
+        starts_at: { type: string, format: date-time }
+        ends_at: { type: string, format: date-time, nullable: true, x-omitempty: false }
+        reason: { type: string }
+        created_at: { type: string, format: date-time }
+    ContactEventCoverageInterval:
+      type: object
+      required: [from, to]
+      properties:
+        from: { type: string, format: date-time }
+        to: { type: string, format: date-time }
+    ContactEventCoverage:
+      type: object
+      description: Recorded history as of this response, not proof that every real-world event has arrived.
+      required: [environment, active, covered, records]
+      properties:
+        environment: { type: string, enum: [live, test] }
+        active: { type: boolean }
+        covered:
+          type: array
+          description: The intervals rules can count in, within the 730-day retention.
+          items: { $ref: '#/components/schemas/ContactEventCoverageInterval' }
+        records:
+          type: array
+          items: { $ref: '#/components/schemas/ContactEventCoverageRecord' }
+    ContactEventCoverageDeclaration:
+      type: object
+      required: [kind, starts_at, ends_at, reason]
+      properties:
+        kind: { type: string, enum: [gap, backfill] }
+        starts_at: { type: string, format: date-time }
+        ends_at: { type: string, format: date-time }
+        reason: { type: string, minLength: 1, maxLength: 500 }
+    ContactEventSchemaPermissions:
+      type: object
+      required: [use, read_values]
+      properties:
+        use:
+          type: boolean
+          description: Name the event in rules and see counts and explanations.
+        read_values:
+          type: boolean
+          description: Inspect property values. Requires use.
+    ContactEventSchemaGrant:
+      type: object
+      required: [subject_kind, subject_id, permissions]
+      properties:
+        subject_kind: { type: string, enum: [role, api_key] }
+        subject_id:
+          type: string
+          description: A role value (a built-in role name or role:<id>) or an API key ID.
+        permissions: { $ref: '#/components/schemas/ContactEventSchemaPermissions' }
+    ContactEventSchemaGrants:
+      type: object
+      description: Restrictions of the default access. Without a grant, anyone who can read contacts can use the schema and read its values.
+      required: [grants]
+      properties:
+        grants:
+          type: array
+          maxItems: 500
+          items: { $ref: '#/components/schemas/ContactEventSchemaGrant' }
+    ContactEventProducerUpdate:
+      type: object
+      required: [label, schema_ids, api_key_ids]
+      properties:
+        label: { type: string, minLength: 1, maxLength: 128 }
+        schema_ids:
+          type: array
+          maxItems: 100
+          items: { type: string, format: uuid }
+        api_key_ids:
+          type: array
+          maxItems: 20
+          description: Keys that send as this producer. A key belongs to at most one producer.
+          items: { type: string, format: uuid }
+    ContactEventProducerCreate:
+      allOf:
+        - $ref: '#/components/schemas/ContactEventProducerUpdate'
+        - type: object
+          required: [key]
+          properties:
+            key: { type: string, pattern: '^[a-z][a-z0-9_]{0,63}$' }
+    ContactEventProducer:
+      type: object
+      required: [id, key, label, schema_ids, api_key_ids, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        key: { type: string }
+        label: { type: string }
+        schema_ids:
+          type: array
+          items: { type: string, format: uuid }
+        api_key_ids:
+          type: array
+          items: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    ContactEventProducerList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/ContactEventProducer' }
+    ContactEventInput:
+      type: object
+      description: >
+        One event. Missing or invalid fields reject this event only; its receipt names the field.
+        The event as sent, at most 32 KiB, is what is compared on a resend.
+      properties:
+        event_id:
+          type: string
+          description: The producer's own id for this event, unique per producer and environment.
+        schema:
+          type: string
+          description: The schema key.
+        contact_id:
+          type: string
+          description: An existing contact of this workspace.
+        occurred_at:
+          type: string
+          description: When the event happened, at most five minutes ahead of receipt and at most 730 days before it.
+        properties:
+          type: object
+          additionalProperties: true
+          description: Values by property key, typed as the schema declares them. Decimals are strings.
+        backfill:
+          type: boolean
+          description: Marks history sent before an attested backfill completion.
+    ContactEventBatchRequest:
+      type: object
+      required: [events]
+      properties:
+        events:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: { $ref: '#/components/schemas/ContactEventInput' }
+    ContactEventRejection:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+          enum:
+            - invalid_event
+            - payload_too_large
+            - schema_not_found
+            - schema_archived
+            - schema_not_allowed
+            - contact_not_found
+            - contact_erased
+            - occurred_in_future
+            - occurred_too_long_ago
+            - invalid_property
+            - unknown_property
+            - missing_property
+            - idempotency_conflict
+        field: { type: string }
+        constraint: { type: string }
+    ContactEventResult:
+      type: object
+      required: [index, event_id, outcome]
+      properties:
+        index: { type: integer }
+        event_id: { type: string }
+        outcome: { type: string, enum: [accepted, duplicate, rejected] }
+        id:
+          type: string
+          format: uuid
+          description: The event's identity, present unless rejected.
+        revision:
+          type: integer
+          description: The event's current revision, present unless rejected.
+        rejection: { $ref: '#/components/schemas/ContactEventRejection' }
+    ContactEventBatch:
+      type: object
+      required: [id, environment, received_at, expires_at, accepted, duplicate, rejected, results]
+      properties:
+        id: { type: string, format: uuid }
+        environment: { type: string, enum: [live, test] }
+        received_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+        accepted: { type: integer }
+        duplicate: { type: integer }
+        rejected: { type: integer }
+        results:
+          type: array
+          items: { $ref: '#/components/schemas/ContactEventResult' }
+    ContactEventCorrection:
+      type: object
+      required: [event_id, expected_revision, occurred_at, properties, reason]
+      properties:
+        event_id: { type: string, minLength: 1, maxLength: 255 }
+        expected_revision: { type: integer, minimum: 1 }
+        occurred_at: { type: string, format: date-time }
+        properties:
+          type: object
+          additionalProperties: true
+        reason: { type: string, minLength: 1, maxLength: 500 }
+    ContactEventRetraction:
+      type: object
+      required: [event_id, expected_revision, reason]
+      properties:
+        event_id: { type: string, minLength: 1, maxLength: 255 }
+        expected_revision: { type: integer, minimum: 1 }
+        reason: { type: string, minLength: 1, maxLength: 500 }
+    ContactEventReceipt:
+      type: object
+      required: [id, event_id, revision, retracted, recorded_at]
+      properties:
+        id: { type: string, format: uuid }
+        event_id: { type: string }
+        revision: { type: integer }
+        retracted: { type: boolean }
+        recorded_at: { type: string, format: date-time }
     MailboxAddress:
       oneOf:
         - type: string
@@ -7165,6 +8047,8 @@ components:
             - custom_field_calculating
             - custom_field_limit_reached
             - custom_field_state_conflict
+            - contact_event_limit_reached
+            - contact_event_state_conflict
             - field_job_state_conflict
             - export_not_ready
             - export_expired
@@ -7172,6 +8056,7 @@ components:
             - restore_package_invalid
             - restore_mapping_conflict
             - predicate_broken
+            - dependency_conflict
             - precondition_failed
             - precondition_required
             - internal_error
@@ -8990,6 +9875,8 @@ components:
         - 'broadcasts:read'
         - 'broadcasts:manage'
         - 'broadcasts:send'
+        - 'contact-events:write'
+        - 'contact-events:manage-schema'
         - '*'
       description: >
         The base permission vocabulary for an API key. A key is granted
