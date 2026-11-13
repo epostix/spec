@@ -8576,7 +8576,7 @@ components:
               type: string
               nullable: true
               x-omitempty: false
-              enum: [cancelled_by_request, recipient_suppressed, recipient_complained, recipient_unsubscribed, recipient_cleaned]
+              enum: [cancelled_by_request, recipient_suppressed, recipient_complained, recipient_unsubscribed, recipient_cleaned, expired_unsent]
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         settled_at:
